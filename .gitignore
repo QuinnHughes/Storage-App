@@ -1,8 +1,10 @@
 # Node modules
 frontend/node_modules/
 backend/__pycache__/
-.env
-*.env
+venv/
+backend/.env
 .vscode/
+.idea/
+logs/
 *.log
 .DS_Store

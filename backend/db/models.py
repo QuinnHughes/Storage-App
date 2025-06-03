@@ -22,21 +22,21 @@ class Item(Base):
 class Analytics(Base):
     __tablename__ = "analytics"
 
-    id                = Column(Integer, primary_key=True, index=True)
-    barcode           = Column(String, index=True, nullable=False)     # matches Item.barcode
-    alt_call_number   = Column(String, index=True, nullable=True)      # matches Item.alternative_call_number
-    title             = Column(String, nullable=True)
-    call_number       = Column(String, nullable=True)                  # Permanent Call Number
-    status            = Column(String, nullable=True)                  # Lifecycle
+    id                          = Column(Integer, primary_key=True, index=True)
+    barcode                     = Column(String, index=True, nullable=False)   # matches Item.barcode
+    alternative_call_number     = Column(String, index=True, nullable=True)    # matches Item.alternative_call_number
+    title                       = Column(String, nullable=True)
+    call_number                 = Column(String, nullable=True)                # Permanent Call Number
+    status                      = Column(String, nullable=True)                # Lifecycle
 
 
 class AnalyticsError(Base):
     __tablename__ = "analytics_errors"
 
-    id                = Column(Integer, primary_key=True, index=True)
-    barcode           = Column(String, index=True, nullable=False)
-    alt_call_number   = Column(String, index=True, nullable=True)
-    title             = Column(String, nullable=True)
-    call_number       = Column(String, nullable=True)
-    status            = Column(String, nullable=True)
-    error_reason      = Column(String, nullable=False)
+    id                          = Column(Integer, primary_key=True, index=True)
+    barcode                     = Column(String, index=True, nullable=False)
+    alternative_call_number     = Column(String, index=True, nullable=True)
+    title                       = Column(String, nullable=True)
+    call_number                 = Column(String, nullable=True)
+    status                      = Column(String, nullable=True)
+    error_reason                = Column(String, nullable=False)

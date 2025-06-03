@@ -21,4 +21,3 @@ class ItemRead(ItemBase):
 
     class Config:
         orm_mode = True
-

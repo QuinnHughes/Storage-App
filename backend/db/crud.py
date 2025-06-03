@@ -1,7 +1,5 @@
 # backend/db/crud.py
 
-# backend/db/crud.py
-
 from sqlalchemy.orm import Session
 from . import models
 from schemas.item import ItemCreate
@@ -13,10 +11,10 @@ def get_item_by_barcode(db: Session, barcode: str):
 def create_item(db: Session, item_in: ItemCreate):
     db_item = models.Item(
         barcode=item_in.barcode,
-        alternative_call_number=item_in.alt_call_number,
+        alternative_call_number=item_in.alternative_call_number,
         location=item_in.location,
         floor=item_in.floor,
-        range_code=item_in.range,
+        range_code=item_in.range_code,
         ladder=item_in.ladder,
         shelf=item_in.shelf,
         position=item_in.position,
@@ -32,7 +30,7 @@ def list_items(db: Session, skip: int = 0, limit: int = 100):
 def create_analytics(db: Session, analytics_in: AnalyticsCreate):
     db_analytics = models.Analytics(
         barcode=analytics_in.barcode,
-        alt_call_number=analytics_in.alt_call_number,
+        alternative_call_number=analytics_in.alternative_call_number,
         title=analytics_in.title,
         call_number=analytics_in.call_number,
         status=analytics_in.status,
@@ -45,7 +43,7 @@ def create_analytics(db: Session, analytics_in: AnalyticsCreate):
 def create_analytics_error(db: Session, error_in: AnalyticsErrorCreate):
     db_err = models.AnalyticsError(
         barcode=error_in.barcode,
-        alt_call_number=error_in.alt_call_number,
+        alternative_call_number=error_in.alternative_call_number,
         title=error_in.title,
         call_number=error_in.call_number,
         status=error_in.status,

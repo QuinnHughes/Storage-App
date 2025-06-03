@@ -1,22 +1,37 @@
-// src/components/Layout.jsx
 import { Link, Outlet } from 'react-router-dom';
+import './Layout.css';
 
-export default function Layout() {
-  return (
-    <div>
-      <nav style={{ padding: '1rem', background: '#eee' }}>
-        <Link to="/" style={{ marginRight: '1rem' }}>Dashboard</Link>
-        <Link to="/shelf-viewer" style={{ marginRight: '1rem' }}>Shelf Viewer</Link>
-        <Link to="/item-manager" style={{ marginRight: '1rem' }}>Item Manager</Link>
-        <Link to="/analytics-manager" style={{ marginRight: '1rem' }}>Analytics Manager</Link>
-        <Link to="/search" style={{ marginRight: '1rem' }}>Search</Link>
-        <Link to="/compare" style={{ marginRight: '1rem' }}>Compare</Link>
-        <Link to="/review-needed" style={{ marginRight: '1rem' }}>Review Needed</Link>
-        <Link to="/admin/edit">Admin Edit</Link>
-      </nav>
-      <main style={{ padding: '1rem' }}>
-        <Outlet />
-      </main>
-    </div>
-  );
-}
+const Layout = () => (
+  <div className="layout">
+    <nav className="sidebar">
+      <h2>Storage App</h2>
+
+      <h3>Searches</h3>
+      <ul>
+        <li><Link to="/shelf-viewer">Shelf Viewer</Link></li>
+        <li><Link to="/item-search">Item Search</Link></li>
+        <li><Link to="/analytics-search">Analytics Search</Link></li>
+        <li><Link to="/compare">Compare</Link></li>
+      </ul>
+
+      <h3>Record Editing</h3>
+      <ul>
+        <li><Link to="/item-manager">Item Manager</Link></li>
+        <li><Link to="/upload-items">Upload Items</Link></li>
+        <li><Link to="/upload-analytics">Upload Analytics</Link></li>
+        <li><Link to="/review-needed">Review Needed</Link></li>
+        <li><Link to="/admin-edit">Admin Edit</Link></li>
+      </ul>
+
+      <h3>Documentation</h3>
+      <ul>
+        <li><Link to="/">Quick Start</Link></li>
+      </ul>
+    </nav>
+    <main className="main-content">
+      <Outlet />
+    </main>
+  </div>
+);
+
+export default Layout;

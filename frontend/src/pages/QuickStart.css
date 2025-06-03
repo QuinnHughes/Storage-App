@@ -1,0 +1,21 @@
+.quickstart {
+  max-width: 700px;
+  margin: auto;
+}
+
+.quickstart h1 {
+  font-size: 2em;
+  margin-bottom: 15px;
+}
+
+.quickstart section {
+  background: #f0f0f0;
+  padding: 15px;
+  border-radius: 5px;
+  margin-top: 20px;
+}
+
+.quickstart ul {
+  list-style: disc;
+  margin-left: 20px;
+}
