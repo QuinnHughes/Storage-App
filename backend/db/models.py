@@ -1,24 +1,42 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
-from db.base import Base
+# backend/db/models.py
+
+from sqlalchemy import Column, Integer, String
+from .base import Base
 
 class Item(Base):
     __tablename__ = "items"
 
-    id = Column(Integer, primary_key=True, index=True)
-    barcode = Column(String, unique=True, index=True)
-    alt_call_number = Column(String)
-    floor = Column(String)
-    range = Column(String)
-    ladder = Column(String)
-    shelf = Column(String)
-    position = Column(String)
+    id                      = Column(Integer, primary_key=True, index=True)
+    barcode                 = Column(String, unique=True, index=True, nullable=False)
+    alternative_call_number = Column(String, index=True, nullable=False)
+
+    # parsed from alternative_call_number
+    location   = Column(String, index=True, nullable=True)  # e.g. "S"
+    floor      = Column(String, index=True, nullable=True)  # e.g. "1"
+    range_code = Column(String, index=True, nullable=True)  # e.g. "01B"
+    ladder     = Column(String, nullable=True)              # e.g. "03"
+    shelf      = Column(String, nullable=True)              # e.g. "04"
+    position   = Column(String, nullable=True)              # e.g. "005"
+
 
 class Analytics(Base):
     __tablename__ = "analytics"
 
-    id = Column(Integer, primary_key=True, index=True)
-    barcode = Column(String, index=True)
-    alt_call_number = Column(String)
-    title = Column(String)
-    call_number = Column(String)
-    status = Column(String)  # "linked" or "needs_review"
+    id                = Column(Integer, primary_key=True, index=True)
+    barcode           = Column(String, index=True, nullable=False)     # matches Item.barcode
+    alt_call_number   = Column(String, index=True, nullable=True)      # matches Item.alternative_call_number
+    title             = Column(String, nullable=True)
+    call_number       = Column(String, nullable=True)                  # Permanent Call Number
+    status            = Column(String, nullable=True)                  # Lifecycle
+
+
+class AnalyticsError(Base):
+    __tablename__ = "analytics_errors"
+
+    id                = Column(Integer, primary_key=True, index=True)
+    barcode           = Column(String, index=True, nullable=False)
+    alt_call_number   = Column(String, index=True, nullable=True)
+    title             = Column(String, nullable=True)
+    call_number       = Column(String, nullable=True)
+    status            = Column(String, nullable=True)
+    error_reason      = Column(String, nullable=False)

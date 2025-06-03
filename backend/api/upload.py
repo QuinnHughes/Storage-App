@@ -6,10 +6,11 @@ import pandas as pd
 from io import BytesIO
 from typing import List
 
-from db import crud, models
-from schemas.item import ItemCreate, ItemRead
-from schemas.analytics import AnalyticsCreate, AnalyticsRead
+from db import models
 from db.session import get_db
+from schemas.item import ItemCreate, ItemRead
+from schemas.analytics import AnalyticsCreate, AnalyticsErrorCreate, AnalyticsRead, AnalyticsErrorRead
+from db import crud
 
 router = APIRouter()
 
@@ -26,60 +27,68 @@ def create_item_endpoint(item_in: ItemCreate, db: Session = Depends(get_db)):
     db_item = crud.create_item(db, item_in)
     return db_item
 
-@router.get("/items", response_model=List[ItemRead])
-def list_items_endpoint(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """
-    Returns a paginated list of all items.
-    """
-    return crud.list_items(db, skip=skip, limit=limit)
-
-
 ###────────── File-Upload Endpoints ───────────────────
 
 @router.post("/items-file")
 async def upload_items_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """
-    Accepts an XLSX file with columns: 'barcode', 'alternative_call_number'.
-    Parses and inserts each row into the items table.
-    Returns a summary of successes and failures.
+    Accepts an XLSX or XLS file with columns: 'barcode', 'alternative_call_number'.
+    Parses and inserts each row into the items table unconditionally.
     """
-    if not file.filename.lower().endswith((".xlsx", ".xls")):
-        raise HTTPException(status_code=400, detail="Only Excel files are supported.")
+    filename = file.filename.lower()
+    if not (filename.endswith(".xlsx") or filename.endswith(".xls")):
+        raise HTTPException(status_code=400, detail="Only .xlsx or .xls files are supported.")
 
     contents = await file.read()
-    try:
-        df = pd.read_excel(BytesIO(contents))
-    except Exception:
-        raise HTTPException(status_code=400, detail="Unable to read Excel file.")
 
+    # 1) Read Excel into DataFrame
+    try:
+        if filename.endswith(".xlsx"):
+            df = pd.read_excel(BytesIO(contents), engine="openpyxl")
+        else:
+            try:
+                import xlrd  # noqa: F401
+            except ImportError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Reading .xls files requires the 'xlrd' library. Install xlrd>=2.0.1 or convert to .xlsx."
+                )
+            df = pd.read_excel(BytesIO(contents), engine="xlrd")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Unable to read Excel file: {e}")
+
+    # 2) Check required columns (case-insensitive)
     required_cols = {"barcode", "alternative_call_number"}
-    if not required_cols.issubset(df.columns.str.lower()):
-        # Accept mixed-case by lowercasing columns for the check
+    lower_cols = {c.lower() for c in df.columns}
+    if not required_cols.issubset(lower_cols):
+        missing = required_cols - lower_cols
         raise HTTPException(
             status_code=400,
-            detail=f"Missing required columns. Expected 'barcode' and 'alternative_call_number'."
+            detail=f"Missing required columns: {', '.join(missing)}. Expected 'barcode' and 'alternative_call_number'."
         )
+
+    # Normalize column names to lowercase
+    df.columns = [col.lower() for col in df.columns]
 
     inserted = 0
     errors = []
-
-    # Normalize column names to lowercase to handle case variations
-    df.columns = [col.lower() for col in df.columns]
 
     for idx, row in df.iterrows():
         barcode = str(row["barcode"]).strip()
         alt_call = str(row["alternative_call_number"]).strip()
 
-        # Parse alt_call into components: ["S","1","02B","03","04","005"]
+        # Parse alt_call into components: ["S","1","01B","03","04","005"]
         parts = alt_call.split("-")
         if len(parts) != 6:
             errors.append({"row": idx + 2, "barcode": barcode, "error": "Invalid call number format"})
             continue
 
-        _, floor, range_code, ladder, shelf, position = parts
+        location, floor, range_code, ladder, shelf, position = parts
+
         item_in = ItemCreate(
             barcode=barcode,
             alt_call_number=alt_call,
+            location=location,
             floor=floor,
             range=range_code,
             ladder=ladder,
@@ -104,33 +113,53 @@ async def upload_items_file(file: UploadFile = File(...), db: Session = Depends(
 @router.post("/analytics-file")
 async def upload_analytics_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """
-    Accepts an XLSX file with columns including: 'Barcode', 'Item Call Number', 'Title', 'Permanent Call Number', 'Lifecycle'.
-    For each row, if the barcode exists in items, insert into analytics; otherwise record as missing.
-    Returns a summary of successes and failures.
+    Accepts an XLSX or XLS file with columns:
+      'barcode', 'item call number', 'title', 'permanent call number', 'lifecycle'.
+
+    Logic:
+    1) If both barcode AND item call number match the same Item:
+         → insert into analytics table.
+    2) Otherwise (partial match or no match):
+         → insert into analytics_errors table, with an error_reason.
     """
-    if not file.filename.lower().endswith((".xlsx", ".xls")):
-        raise HTTPException(status_code=400, detail="Only Excel files are supported.")
+    filename = file.filename.lower()
+    if not (filename.endswith(".xlsx") or filename.endswith(".xls")):
+        raise HTTPException(status_code=400, detail="Only .xlsx or .xls files are supported.")
 
     contents = await file.read()
-    try:
-        df = pd.read_excel(BytesIO(contents))
-    except Exception:
-        raise HTTPException(status_code=400, detail="Unable to read Excel file.")
 
-    # Ensure the required columns exist (case-insensitive)
+    # 1) Read Excel into DataFrame
+    try:
+        if filename.endswith(".xlsx"):
+            df = pd.read_excel(BytesIO(contents), engine="openpyxl")
+        else:
+            try:
+                import xlrd  # noqa: F401
+            except ImportError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Reading .xls files requires the 'xlrd' library. Install xlrd>=2.0.1 or convert to .xlsx."
+                )
+            df = pd.read_excel(BytesIO(contents), engine="xlrd")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Unable to read Excel file: {e}")
+
+    # 2) Ensure required columns exist (case-insensitive)
     needed_cols = {"barcode", "item call number", "title", "permanent call number", "lifecycle"}
-    if not needed_cols.issubset({col.lower() for col in df.columns}):
+    lower_cols = {c.lower() for c in df.columns}
+    if not needed_cols.issubset(lower_cols):
+        missing = needed_cols - lower_cols
         raise HTTPException(
             status_code=400,
-            detail=f"Missing required columns. Expected at least: {', '.join(needed_cols)}"
+            detail=f"Missing required columns: {', '.join(missing)}. Expected at least: {', '.join(needed_cols)}"
         )
-
-    inserted = 0
-    skipped = []
-    errors = []
 
     # Normalize column names
     df.columns = [col.lower() for col in df.columns]
+
+    inserted = 0
+    error_inserted = 0
+    errors = []
 
     for idx, row in df.iterrows():
         barcode = str(row["barcode"]).strip()
@@ -139,23 +168,51 @@ async def upload_analytics_file(file: UploadFile = File(...), db: Session = Depe
         call_number = str(row["permanent call number"]).strip()
         status = str(row["lifecycle"]).strip()
 
-        # Check if that barcode exists in items table
-        existing_item = crud.get_item_by_barcode(db, barcode)
-        if not existing_item:
-            skipped.append({"row": idx + 2, "barcode": barcode, "reason": "No matching item"})
+        # 1) Check for a full match: both barcode AND alt_call_number must match the SAME Item
+        item_full = db.query(models.Item).filter(
+            models.Item.barcode == barcode,
+            models.Item.alternative_call_number == alt_call
+        ).first()
+
+        if item_full:
+            # Insert into analytics
+            analytics_in = AnalyticsCreate(
+                barcode=barcode,
+                alt_call_number=alt_call,
+                title=title,
+                call_number=call_number,
+                status=status
+            )
+            try:
+                crud.create_analytics(db, analytics_in)
+                inserted += 1
+            except Exception as e:
+                errors.append({"row": idx + 2, "barcode": barcode, "error": str(e)})
             continue
 
-        analytics_in = AnalyticsCreate(
+        # 2) Partial‐match logic
+        barcode_match = crud.get_item_by_barcode(db, barcode) is not None
+        acn_match = db.query(models.Item).filter(
+            models.Item.alternative_call_number == alt_call
+        ).first() is not None
+
+        if barcode_match or acn_match:
+            reason = "Partial match (only barcode or only alt_call matches)"
+        else:
+            reason = "No matching item (neither barcode nor alt_call matches)"
+
+        # Insert into analytics_errors
+        error_in = AnalyticsErrorCreate(
             barcode=barcode,
             alt_call_number=alt_call,
             title=title,
             call_number=call_number,
-            status=status
+            status=status,
+            error_reason=reason
         )
-
         try:
-            crud.create_analytics(db, analytics_in)
-            inserted += 1
+            crud.create_analytics_error(db, error_in)
+            error_inserted += 1
         except Exception as e:
             errors.append({"row": idx + 2, "barcode": barcode, "error": str(e)})
 
@@ -163,6 +220,6 @@ async def upload_analytics_file(file: UploadFile = File(...), db: Session = Depe
         "filename": file.filename,
         "total_rows": int(df.shape[0]),
         "inserted": inserted,
-        "skipped": skipped,
+        "errors_inserted": error_inserted,
         "errors": errors
     }
