@@ -1,15 +1,20 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import Layout from './components/Layout';
-import QuickStart from './pages/QuickStart';
-import ItemSearch from './pages/ItemSearch';
-import ShelfViewer from './pages/ShelfViewer';
-import ItemManager from './pages/ItemManager';
-import AnalyticsSearch from './pages/AnalyticsSearch';
-import UploadItems from './pages/UploadItems';
-import UploadAnalytics from './pages/UploadAnalytics';
-import ReviewNeeded from './pages/ReviewNeeded';
-import AdminEdit from './pages/AdminEdit';
-import Compare from './pages/Compare';
+// src/App.jsx
+
+// 1) Import Tailwind’s generated CSS first:
+import "./index.css";
+
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import Layout from "./components/Layout";
+import QuickStart from "./pages/QuickStart";
+import ItemSearch from "./pages/ItemSearch";
+import ShelfViewer from "./pages/ShelfViewer";
+import ItemManager from "./pages/ItemManager";
+import AnalyticsSearch from "./pages/AnalyticsSearch";
+import UploadItems from "./pages/UploadItems";
+import UploadAnalytics from "./pages/UploadAnalytics";
+import ReviewNeeded from "./pages/ReviewNeeded";
+import AdminEdit from "./pages/AdminEdit";
+import Compare from "./pages/Compare";
 
 const App = () => (
   <Router>

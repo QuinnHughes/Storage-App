@@ -28,8 +28,12 @@ const Layout = () => (
         <li><Link to="/">Quick Start</Link></li>
       </ul>
     </nav>
+
     <main className="main-content">
-      <Outlet />
+      {/* Center & constrain everything inside */}
+      <div className="mx-auto max-w-screen-xl px-4 sm:px-6 lg:px-8">
+        <Outlet />
+      </div>
     </main>
   </div>
 );

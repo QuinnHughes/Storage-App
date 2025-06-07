@@ -4,17 +4,18 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from db.session import engine
 from db.models import Base
-from api import upload, catalog  # analytics is optional for now
+from api import upload, catalog  
 
-# Create tables (if they don’t exist)
+# This will make new tables in postgres if no matching table is available, 
+# use this if setting up a new database and instead of making tables just run the backend via uvicorn, if that doesnt work kick rocks.
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Shelf Catalog API")
 
-# If your frontend runs on another port (e.g. React on 5173), allow CORS:
+# Dont change the ports unless you want this to look like hell
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],      # you can lock this down later
+    allow_origins=["*"],      # lock this down later
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -22,6 +23,6 @@ app.add_middleware(
 
 app.include_router(upload.router, prefix="/upload", tags=["Upload"])
 app.include_router(catalog.router, prefix="/catalog", tags=["Catalog"])
-# For now, leave analytics router commented until you wire it:
-# from api import analytics
+# upload router used for item uploads/database
+# catalog router allows quieres of items in database
 # app.include_router(analytics.router, prefix="/upload/analytics", tags=["Analytics"])

@@ -3,7 +3,7 @@
 export default function AnalyticsManager() {
   return (
     <div>
-      <h1>Analytics Manager</h1>
+      <h1>Shelf Viewer</h1>
       <p>This page is under construction.</p>
     </div>
   );

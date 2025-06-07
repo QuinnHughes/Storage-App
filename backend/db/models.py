@@ -1,6 +1,6 @@
 # backend/db/models.py
 
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, DateTime
 from .base import Base
 
 class Item(Base):
@@ -26,8 +26,11 @@ class Analytics(Base):
     barcode                     = Column(String, index=True, nullable=False)   # matches Item.barcode
     alternative_call_number     = Column(String, index=True, nullable=True)    # matches Item.alternative_call_number
     title                       = Column(String, nullable=True)
-    call_number                 = Column(String, nullable=True)                # Permanent Call Number
-    status                      = Column(String, nullable=True)                # Lifecycle
+    location_code               = Column(String, nullable=True)               # from "Location Code"
+    item_policy                 = Column(String, nullable=True)               # from "Item Policy"
+    call_number                 = Column(String, nullable=True)               # from "Permanent Call Number"
+    description                 = Column(String, nullable=True)               # from "Description"
+    status                      = Column(String, nullable=True)               # from "Lifecycle"
 
 
 class AnalyticsError(Base):

@@ -7,7 +7,7 @@
   width: 220px;
   background: #f7f7f7;
   padding: 20px;
-  border-right: 1px solid #ddd;
+  border-right: 1px solid hsl(202, 53%, 77%);
 }
 
 .sidebar h2 {
@@ -47,4 +47,7 @@
   padding: 30px;
   flex-grow: 1;
   overflow-y: auto;
+  /* constrain & center */
+  max-width: 1200px;   /* or tweak to taste */
+  margin: 0 auto;
 }

@@ -1,80 +1,32 @@
 # backend/api/analytics.py
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
-import pandas as pd
-from db.session import SessionLocal
-from db.models import Item, Analytics
-from core.utils import parse_alt_call_number
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+
+from db import models
+from db.session import get_db
+from schemas.analytics import AnalyticsRead
 
 router = APIRouter()
 
 
-@router.post("/")
-def upload_analytics(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".xlsx"):
-        raise HTTPException(status_code=400, detail="Only .xlsx files supported")
-
-    try:
-        df = pd.read_excel(file.file)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Unable to read Excel file: {e}")
-
-    session = SessionLocal()
-    inserted = 0
-    errors = []
-
-    for idx, row in df.iterrows():
-        barcode = str(row.get("barcode", "")).strip()
-        item_call = str(row.get("item_call_number", "")).strip()
-        title = str(row.get("title", "")).strip()
-        call_number = str(row.get("permanent_call_number", "")).strip()
-        status = str(row.get("lifecycle", "")).strip()
-
-        if not barcode:
-            errors.append({"row": idx + 2, "error": "Missing barcode"})
-            continue
-
-        # Look up the item by barcode
-        item = session.query(Item).filter(Item.barcode == barcode).first()
-        if not item:
-            errors.append({"row": idx + 2, "barcode": barcode, "error": "No matching item"})
-            continue
-
-        # Optionally parse item.alternative_call_number
-        parsed = parse_alt_call_number(item.alternative_call_number)
-
-        db_analytics = Analytics(
-            barcode=barcode,
-            alternative_call_number=item.alternative_call_number,
-            title=title,
-            call_number=call_number,
-            status=status
-        )
-
-        try:
-            session.add(db_analytics)
-            session.commit()
-            inserted += 1
-        except Exception as e:
-            session.rollback()
-            errors.append({"row": idx + 2, "barcode": barcode, "error": str(e)})
-
-    session.close()
-    return {"inserted": inserted, "errors": errors}
+@router.get("/analytics/{barcode}", response_model=AnalyticsRead)
+def get_analytics_by_barcode(barcode: str, db: Session = Depends(get_db)):
+    result = db.query(models.Analytics).filter(models.Analytics.barcode == barcode).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Analytics data not found")
+    return result
 
 
-@router.get("/review-needed")
-def get_review_needed():
-    session = SessionLocal()
-    results = session.query(Analytics).filter_by(status="needs_review").all()
-    session.close()
-
-    return [
-        {
-            "barcode": a.barcode,
-            "alternative_call_number": a.alternative_call_number,
-            "title": a.title,
-            "call_number": a.call_number
-        }
-        for a in results
-    ]
+@router.get("/analytics-search", response_model=list[AnalyticsRead])
+def search_analytics(
+    title: str = Query(None),
+    alternative_call_number: str = Query(None),
+    db: Session = Depends(get_db)
+):
+    query = db.query(models.Analytics)
+    if title:
+        query = query.filter(models.Analytics.title.ilike(f"%{title}%"))
+    if alternative_call_number:
+        query = query.filter(models.Analytics.alternative_call_number.ilike(f"%{alternative_call_number}%"))
+    return query.all()

@@ -3,6 +3,8 @@
 from pydantic import BaseModel
 from typing import Optional
 
+#Items table schema, 
+
 class ItemBase(BaseModel):
     barcode: str
     alternative_call_number: str
@@ -21,3 +23,4 @@ class ItemRead(ItemBase):
 
     class Config:
         orm_mode = True
+
