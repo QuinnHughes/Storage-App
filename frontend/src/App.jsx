@@ -7,7 +7,7 @@ import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Layout from "./components/Layout";
 import QuickStart from "./pages/QuickStart";
 import ItemSearch from "./pages/ItemSearch";
-import ShelfViewer from "./pages/ShelfViewer";
+import EmptySlots from "./pages/EmptySlots";
 import ItemManager from "./pages/ItemManager";
 import AnalyticsSearch from "./pages/AnalyticsSearch";
 import UploadItems from "./pages/UploadItems";
@@ -21,7 +21,7 @@ const App = () => (
     <Routes>
       <Route path="/" element={<Layout />}>
         <Route index element={<QuickStart />} />
-        <Route path="shelf-viewer" element={<ShelfViewer />} />
+        <Route path="empty-slots" element={<EmptySlots />} />
         <Route path="item-search" element={<ItemSearch />} />
         <Route path="analytics-search" element={<AnalyticsSearch />} />
         <Route path="compare" element={<Compare />} />

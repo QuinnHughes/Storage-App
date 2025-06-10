@@ -8,7 +8,7 @@ const Layout = () => (
 
       <h3>Searches</h3>
       <ul>
-        <li><Link to="/shelf-viewer">Shelf Viewer</Link></li>
+        <li><Link to="/empty-slots">Empty Slots</Link></li>
         <li><Link to="/item-search">Item Search</Link></li>
         <li><Link to="/analytics-search">Analytics Search</Link></li>
         <li><Link to="/compare">Compare</Link></li>
