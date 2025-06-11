@@ -1,19 +1,4 @@
-# Storage-App
 
-A multifunctional web-based storage and inventory management app using FastAPI, PostgreSQL, and React (via Vite).
-
-## 🔧 Tech Stack
-
-- **Frontend**: React (Vite)
-- **Backend**: FastAPI
-- **Database**: PostgreSQL
-- **ORM**: SQLAlchemy with asyncpg
-- **Data Import**: XLSX (openpyxl + pandas)
-
-
-## 🛠 Project Structure
-
-```
 Storage-App/
 ├── backend/
 │   ├── main.py
