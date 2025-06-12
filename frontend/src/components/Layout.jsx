@@ -6,6 +6,11 @@ const Layout = () => (
     <nav className="sidebar">
       <h2>Storage App</h2>
 
+      <h3>Documentation</h3>
+      <ul>
+        <li><Link to="/">Quick Start</Link></li>
+      </ul>
+      
       <h3>Searches</h3>
       <ul>
         <li><Link to="/empty-slots">Empty Slots</Link></li>
@@ -23,10 +28,6 @@ const Layout = () => (
         <li><Link to="/admin-edit">Admin Edit</Link></li>
       </ul>
 
-      <h3>Documentation</h3>
-      <ul>
-        <li><Link to="/">Quick Start</Link></li>
-      </ul>
     </nav>
 
     <main className="main-content">
