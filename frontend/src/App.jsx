@@ -15,6 +15,7 @@ import UploadAnalytics from "./pages/UploadAnalytics";
 import ReviewNeeded from "./pages/ReviewNeeded";
 import AdminEdit from "./pages/AdminEdit";
 import Compare from "./pages/Compare";
+import Documentation from "./pages/Documentation";
 
 const App = () => (
   <Router>
@@ -30,6 +31,7 @@ const App = () => (
         <Route path="upload-analytics" element={<UploadAnalytics />} />
         <Route path="review-needed" element={<ReviewNeeded />} />
         <Route path="admin-edit" element={<AdminEdit />} />
+        <Route path="documentation" element={<Documentation />} />
       </Route>
     </Routes>
   </Router>

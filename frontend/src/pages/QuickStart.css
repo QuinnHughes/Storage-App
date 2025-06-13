@@ -1,5 +1,5 @@
 .quickstart {
-  max-width: 700px;
+  max-width: 750px;
   margin: auto;
 }
 
@@ -10,12 +10,12 @@
 
 .quickstart section {
   background: #f0f0f0;
-  padding: 15px;
+  padding: 10px;
   border-radius: 5px;
   margin-top: 20px;
 }
 
 .quickstart ul {
   list-style: disc;
-  margin-left: 20px;
+  margin-left: 15px;
 }
