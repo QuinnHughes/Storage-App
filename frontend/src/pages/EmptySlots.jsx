@@ -1,3 +1,7 @@
+//EmptySlots: Uses view empty_slot_details against the main "items" database to predict empty spaces and where they should be. 
+//To-do: Needs view adjusted to view weeding list aswell, could potentitally do a seperate view that looks at a table of weeded items.
+//To-do cont: Add in on this or in a new sheet ability to select a pre definable template for accesionning, xlsx for item updater by excel and for zebra batch print(probaly will need an api)
+
 import { useEffect, useState } from 'react';
 
 const EmptySlots = () => {
