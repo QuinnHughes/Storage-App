@@ -24,7 +24,7 @@ const QuickStart = () => (
       <br></br>
         <li><b>Upload Items</b>: Used for mass record input and editing of the primary database, requires a specific format of excel sheet which a sample is available for download in documentation. NOTICE this is without a doubt the most dangerous feature when it comes to messing things up so be absolutely certain you fully understand what you are doing before using this. <b>The machine wll not forgive your mistakes here</b>.</li>
       <br></br>
-        <li><b>Upload Analytics</b>:</li>
+        <li><b>Upload Analytics</b>:Works similar to upload items and allows you to upload exported results from oracle analytics to be combined with item uploads. NOTICE when using these be sure you have read the documentation about how this works .</li>
       </ul>
 
     </section>
