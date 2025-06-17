@@ -2,7 +2,7 @@ import './QuickStart.css';
 
 const QuickStart = () => (
   <div className="quickstart">
-    <h1>Storage App Documentation</h1>
+    <h1>Storage App Overview</h1>
     <p>
       This guide will give a brief overview of each function in this app, for a more detailed guide check out the Documentation page.
     </p>

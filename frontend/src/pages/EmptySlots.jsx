@@ -14,7 +14,7 @@ const EmptySlots = () => {
   useEffect(() => {
     const fetchSlots = async () => {
       try {
-        const res = await fetch('http://localhost:8000/catalog/search/empty-slot-details');
+        const res = await fetch("/catalog/search/empty-slot-details");
         if (!res.ok) throw new Error('Failed to fetch empty slots');
         const data = await res.json();
         setSlots(data);
