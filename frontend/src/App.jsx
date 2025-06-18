@@ -14,7 +14,7 @@ import UploadItems from "./pages/UploadItems";
 import UploadAnalytics from "./pages/UploadAnalytics";
 import ReviewNeeded from "./pages/ReviewNeeded";
 import AdminEdit from "./pages/AdminEdit";
-import Compare from "./pages/Compare";
+import AnalyticsErrors from "./pages/AnalyticsErrors";
 import Documentation from "./pages/Documentation";
 
 const App = () => (
@@ -25,7 +25,7 @@ const App = () => (
         <Route path="empty-slots" element={<EmptySlots />} />
         <Route path="item-search" element={<ItemSearch />} />
         <Route path="analytics-search" element={<AnalyticsSearch />} />
-        <Route path="compare" element={<Compare />} />
+        <Route path="analytics-errors" element={<AnalyticsErrors />} />
         <Route path="item-manager" element={<ItemManager />} />
         <Route path="upload-items" element={<UploadItems />} />
         <Route path="upload-analytics" element={<UploadAnalytics />} />
