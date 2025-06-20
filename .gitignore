@@ -8,3 +8,5 @@ backend/.env
 logs/
 *.log
 .DS_Store
+Record_sets/
+backend/cgp_sudoc_index.db/
