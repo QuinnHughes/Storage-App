@@ -1,6 +1,6 @@
 # Node modules
 frontend/node_modules/
-backend/cgp_sudoc_index.db/
+backend/cgp_sudoc_index.db
 backend/__pycache__/
 venv/
 backend/.env
