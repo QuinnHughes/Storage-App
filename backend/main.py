@@ -1,32 +1,77 @@
 # backend/main.py
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from db.session import engine
-from db.models import Base
-from api import upload, catalog, analytics_errors  
-from api.sudoc import router as sudoc_router 
 
-# This will make new tables in postgres if no matching table is available, 
-# use this if setting up a new database and instead of making tables just run the backend via uvicorn, if that doesnt work kick rocks.
+from db.session       import engine
+from db.models        import Base, User
+from api.upload       import router as upload_router
+from api.catalog      import router as catalog_router
+from api.analytics_errors import router as analytics_errors_router
+from api.sudoc        import router as sudoc_router
+from api.auth         import router as auth_router
+from api.logs         import router as logs_router
+from core.auth        import get_current_user, require_admin
+from middleware.logging import LoggingMiddleware
+
+# Create tables (development only—use Alembic in prod)
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Shelf Catalog API")
 
-# Dont change the ports unless you want this to look like hell
+# CORS (lock down allow_origins before production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],      # lock this down later
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(upload.router, prefix="/upload", tags=["Upload"])
-app.include_router(catalog.router, prefix="/catalog", tags=["Catalog"])
-app.include_router(analytics_errors.router, prefix="/catalog", tags=["AnalyticsErrors"])
-app.include_router(sudoc_router, prefix="/catalog", tags=["SuDoc"])
+# Request‐logging middleware (writes every request into user_logs)
+app.add_middleware(LoggingMiddleware)
 
-# upload router used for item uploads/database
-# catalog router allows quieres of items in database
-# app.include_router(analytics.router, prefix="/upload/analytics", tags=["Analytics"])
+# ── AUTHENTICATION ───────────────────────────────────────────────────────────
+# This registers exactly one POST /auth/token (router defines prefix="/auth")
+app.include_router(auth_router)
+
+# ── PROTECTED ROUTES ─────────────────────────────────────────────────────────
+# All require a valid JWT (any role)
+app.include_router(
+    upload_router,
+    prefix="/upload",
+    tags=["Upload"],
+    dependencies=[Depends(get_current_user)],
+)
+app.include_router(
+    analytics_errors_router,
+    prefix="/catalog/analytics-errors",
+    tags=["AnalyticsErrors"],
+    dependencies=[Depends(get_current_user)],
+)
+app.include_router(
+    catalog_router,
+    prefix="/catalog",
+    tags=["Catalog"],
+    dependencies=[Depends(get_current_user)],
+)
+app.include_router(
+    sudoc_router,
+    prefix="/catalog/sudoc",
+    tags=["SuDoc"],
+    dependencies=[Depends(get_current_user)],
+)
+
+# ── ADMIN‐ONLY ROUTES ─────────────────────────────────────────────────────────
+# Viewing logs
+app.include_router(
+    logs_router,
+    prefix="/logs",
+    tags=["Logs"],
+    dependencies=[Depends(require_admin)],
+)
+
+# Example inline admin endpoint
+@app.get("/admin-only", tags=["Admin"])
+def read_admin_data(current_user: User = Depends(require_admin)):
+    return {"msg": f"Hello {current_user.username}, you’re an admin!"}

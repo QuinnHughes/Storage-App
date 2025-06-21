@@ -1,6 +1,8 @@
 # backend/db/models.py
 
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
+import datetime
 from .base import Base
 
 class Item(Base):
@@ -43,3 +45,28 @@ class AnalyticsError(Base):
     call_number                 = Column(String, nullable=True)
     status                      = Column(String, nullable=True)
     error_reason                = Column(String, nullable=False)
+
+class User(Base):
+    __tablename__ = "users"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    username        = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    role            = Column(String, nullable=False)
+
+class UserLog(Base):
+    __tablename__ = "user_logs"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    user_id     = Column(Integer, ForeignKey("users.id"), nullable=True)
+    path        = Column(String, nullable=False)
+    method      = Column(String, nullable=False)
+    status_code = Column(Integer, nullable=False)
+    detail      = Column(String, nullable=True)
+    timestamp   = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # optional back‐ref so you can do user.logs
+    user = relationship("User", back_populates="logs")
+
+# And on your User model, add this relationship:
+User.logs = relationship("UserLog", back_populates="user", cascade="all, delete-orphan")

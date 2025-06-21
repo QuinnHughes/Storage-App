@@ -2,8 +2,29 @@
 
 from sqlalchemy.orm import Session
 from . import models
+from .models import User
 from schemas.item import ItemCreate
 from schemas.analytics import AnalyticsCreate, AnalyticsErrorCreate
+
+def get_user_by_username(db: Session, username: str) -> User | None:
+    """
+    Return the User with the given username, or None if not found.
+    """
+    return db.query(User).filter(User.username == username).first()
+
+def create_user(db: Session, username: str, password: str, role: str) -> User:
+    """
+    Create a new user:
+    - Hash the plain-text password (imported inside to avoid circular imports)
+    - Save username, hashed_password, and role
+    """
+    from core.auth import hash_password  # deferred import
+    hashed = hash_password(password)
+    user = User(username=username, hashed_password=hashed, role=role)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
 
 def get_item_by_barcode(db: Session, barcode: str):
     return db.query(models.Item).filter(models.Item.barcode == barcode).first()
