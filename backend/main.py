@@ -1,32 +1,100 @@
 # backend/main.py
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from db.session import engine
-from db.models import Base
-from api import upload, catalog, analytics_errors  
-from api.sudoc import router as sudoc_router 
 
-# This will make new tables in postgres if no matching table is available, 
-# use this if setting up a new database and instead of making tables just run the backend via uvicorn, if that doesnt work kick rocks.
+from db.session import engine
+from db.models  import Base, User
+
+from api.upload           import router as upload_router
+from api.catalog          import router as catalog_router
+from api.analytics_errors import router as analytics_errors_router
+from api.sudoc            import router as sudoc_router
+from api.auth             import router as auth_router
+from api.logs             import router as logs_router
+from api.users import router as users_router
+from core.auth        import (
+    require_viewer,
+    require_book_worm,
+    require_cataloger,
+    require_admin,
+)
+from middleware.logging import LoggingMiddleware
+
+# Create tables (development only—use Alembic in prod)
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Shelf Catalog API")
 
-# Dont change the ports unless you want this to look like hell
+# CORS (restrict origins before production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],      # lock this down later
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(upload.router, prefix="/upload", tags=["Upload"])
-app.include_router(catalog.router, prefix="/catalog", tags=["Catalog"])
-app.include_router(analytics_errors.router, prefix="/catalog", tags=["AnalyticsErrors"])
-app.include_router(sudoc_router, prefix="/catalog", tags=["SuDoc"])
+# Request-logging middleware
+app.add_middleware(LoggingMiddleware)
 
-# upload router used for item uploads/database
-# catalog router allows quieres of items in database
-# app.include_router(analytics.router, prefix="/upload/analytics", tags=["Analytics"])
+# ── AUTHENTICATION ───────────────────────────────────────────────────────────
+# /auth/token from api/auth.py
+app.include_router(auth_router)
+
+# ── PROTECTED ROUTES ─────────────────────────────────────────────────────────
+# Uploads (add/edit items) require book_worm+
+app.include_router(
+    upload_router,
+    prefix="/upload",
+    tags=["Upload"],
+    dependencies=[Depends(require_book_worm)],
+)
+
+# Analytics-errors management requires cataloger+
+app.include_router(
+    analytics_errors_router,
+    prefix="/catalog/analytics-errors",
+    tags=["AnalyticsErrors"],
+    dependencies=[Depends(require_cataloger)],
+)
+
+# Catalog searches require viewer+
+app.include_router(
+    catalog_router,
+    prefix="/catalog",
+    tags=["Catalog"],
+    dependencies=[Depends(require_viewer)],
+)
+
+# SuDoc endpoints require cataloger+
+app.include_router(
+    sudoc_router,
+    prefix="/catalog/sudoc",
+    tags=["SuDoc"],
+    dependencies=[Depends(require_cataloger)],
+)
+
+# ── ADMIN-ONLY ROUTES ─────────────────────────────────────────────────────────
+app.include_router(
+    logs_router,
+    prefix="/logs",
+    tags=["Logs"],
+    dependencies=[Depends(require_admin)],
+)
+
+@app.get("/admin-only", tags=["Admin"])
+def read_admin_data(
+    current_user: User = Depends(require_admin)
+):
+    return {"msg": f"Hello {current_user.username}, you’re an admin!"}
+
+# ── USER MANAGEMENT (admin only) ─────────────────────────────────────────────
+app.include_router(
+    users_router,
+    prefix="/users",
+    tags=["Users"],
+    dependencies=[Depends(require_admin)],
+)
+
+
