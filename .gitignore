@@ -9,4 +9,10 @@ backend/.env
 logs/
 *.log
 .DS_Store
-Record_sets/
+backend/Record_sets/
+node_modules
+backend/api/__pycache__/
+backend/core/__pycache__/
+backend/db/__pycache__/
+backend/schemas/__pycache__/
+backend/cgp_sudoc_index/

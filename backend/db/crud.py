@@ -5,6 +5,7 @@ from . import models
 from .models import User
 from schemas.item import ItemCreate
 from schemas.analytics import AnalyticsCreate, AnalyticsErrorCreate
+from typing import List
 
 def get_user_by_username(db: Session, username: str) -> User | None:
     """
@@ -74,3 +75,33 @@ def create_analytics_error(db: Session, error_in: AnalyticsErrorCreate):
     db.commit()
     db.refresh(db_err)
     return db_err
+
+def get_users(db: Session) -> List[User]:
+    """Return all users"""
+    return db.query(User).all()
+
+def get_user_by_id(db: Session, user_id: int) -> User | None:
+    """Return a single user by ID"""
+    return db.query(User).filter(User.id == user_id).first()
+
+def update_user(db: Session, user: User, data) -> User:
+    """Update user's attributes based on UserUpdate schema"""
+    # data may have username, password, role
+    # update fields if provided
+    if data.username:
+        user.username = data.username
+    if data.password:
+        # import hash here to avoid circular import
+        from core.auth import hash_password
+        user.hashed_password = hash_password(data.password)
+    if data.role:
+        user.role = data.role
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+def delete_user(db: Session, user: User) -> None:
+    """Delete a user record"""
+    db.delete(user)
+    db.commit()
