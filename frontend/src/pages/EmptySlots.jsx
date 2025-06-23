@@ -5,17 +5,32 @@
 import { useEffect, useState } from 'react';
 
 const EmptySlots = () => {
-  const [slots, setSlots] = useState([]);
-  const [filtered, setFiltered] = useState([]);
-  const [filters, setFilters] = useState({ floor: '', range: '', ladder: '', shelf: '' });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [slots, setSlots]         = useState([]);
+  const [filtered, setFiltered]   = useState([]);
+  const [filters, setFilters]     = useState({ floor: '', range: '', ladder: '', shelf: '' });
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState(null);
 
+  // ── FETCH EFFECT ───────────────────────────────────────────────────────────
   useEffect(() => {
     const fetchSlots = async () => {
+      setLoading(true);
+      setError(null);
       try {
-        const res = await fetch("/catalog/search/empty-slot-details");
-        if (!res.ok) throw new Error('Failed to fetch empty slots');
+        const token = localStorage.getItem('token');
+        if (!token) throw new Error('Not authenticated');
+
+        const res = await fetch("/catalog/search/empty-slot-details", {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (res.status === 401) {
+          throw new Error('Session expired – please log in again');
+        }
+        if (!res.ok) {
+          throw new Error(`Server error: ${res.status}`);
+        }
+
         const data = await res.json();
         setSlots(data);
         setFiltered(data);

@@ -1,7 +1,8 @@
 # backend/db/models.py
 
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 import datetime
 from .base import Base
 
@@ -45,6 +46,15 @@ class AnalyticsError(Base):
     call_number                 = Column(String, nullable=True)
     status                      = Column(String, nullable=True)
     error_reason                = Column(String, nullable=False)
+
+class WeededItem(Base):
+    __tablename__ = "weeded_items"
+    id                      = Column(Integer, primary_key=True, index=True)
+    alternative_call_number = Column(String, nullable=False)
+    barcode                 = Column(String, nullable=False)
+    scanned_barcode         = Column(String, nullable=True)
+    is_weeded               = Column(Boolean, default=False, nullable=False)
+    created_at              = Column(DateTime(timezone=True), server_default=func.now())
 
 class User(Base):
     __tablename__ = "users"
