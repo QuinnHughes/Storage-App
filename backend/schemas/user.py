@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel, Field
 from typing import Optional, Annotated
+from pydantic import ConfigDict
 
 class UserBase(BaseModel):
     username: Annotated[str, Field(min_length=3, max_length=50)]
@@ -20,3 +21,9 @@ class UserRead(UserBase):
 
     model_config = {"from_attributes": True}
 
+class UserProfile(BaseModel):
+    id: int
+    username: str
+    role: str
+
+    model_config = ConfigDict(from_attributes=True)

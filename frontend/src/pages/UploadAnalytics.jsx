@@ -18,8 +18,12 @@ export default function UploadAnalytics() {
     form.append("file", file);
 
     try {
+      const token = localStorage.getItem('token');
       const resp = await fetch("/upload/analytics-file", {
         method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
         body: form,
       });
 

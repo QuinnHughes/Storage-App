@@ -16,16 +16,19 @@ const EmptySlots = () => {
     const fetchSlots = async () => {
       setLoading(true);
       setError(null);
+
       try {
         const token = localStorage.getItem('token');
         if (!token) throw new Error('Not authenticated');
 
         const res = await fetch("/catalog/search/empty-slot-details", {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
         });
 
         if (res.status === 401) {
-          throw new Error('Session expired – please log in again');
+          throw new Error('Session expired – please log in again.');
         }
         if (!res.ok) {
           throw new Error(`Server error: ${res.status}`);
@@ -35,6 +38,7 @@ const EmptySlots = () => {
         setSlots(data);
         setFiltered(data);
       } catch (err) {
+        console.error("Error fetching empty slots:", err);
         setError(err.message);
       } finally {
         setLoading(false);
@@ -43,7 +47,7 @@ const EmptySlots = () => {
 
     fetchSlots();
   }, []);
-
+  
   useEffect(() => {
 const result = slots.filter(slot => {
   return (

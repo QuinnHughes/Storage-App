@@ -17,9 +17,13 @@ export default function UploadItems() {
     const form = new FormData();
     form.append("file", file);
 
-    try {
+        try {
+      const token = localStorage.getItem('token');
       const resp = await fetch("/upload/items-file", {
         method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
         body: form,
       });
 

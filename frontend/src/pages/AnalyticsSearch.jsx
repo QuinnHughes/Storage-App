@@ -1,5 +1,3 @@
-// src/pages/AnalyticsSearch.jsx
-
 import { useState, useEffect } from "react";
 
 export default function AnalyticsSearch() {
@@ -18,16 +16,20 @@ export default function AnalyticsSearch() {
   const [locations, setLocations] = useState([]);
   const [statuses, setStatuses] = useState([]);
 
-  // Load filters once
   useEffect(() => {
     async function fetchFilters() {
       try {
-        const resp = await fetch("/catalog/search/analytics/filters");
+        const token = localStorage.getItem('token');
+        const resp = await fetch("/catalog/search/analytics/filters", {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
         if (!resp.ok) throw new Error(`Status ${resp.status}`);
         const data = await resp.json();
         setPolicies(data.item_policies || []);
         setLocations(data.location_codes || []);
-        setStatuses(data.status || []);        // ← strictly using data.status
+        setStatuses(data.status || []);
       } catch (err) {
         console.error("Error fetching analytics filters:", err);
       }
@@ -41,31 +43,23 @@ export default function AnalyticsSearch() {
     setResults([]);
     setSearched(false);
 
-    if (
-      !titleQ.trim() &&
-      !barcodeQ.trim() &&
-      !altCallQ.trim() &&
-      !callnoQ.trim() &&
-      !policyFilter &&
-      !locationFilter &&
-      !statusFilter
-    ) {
-      setError("Enter a title, barcode, alt call #, call number, or select a filter.");
-      return;
-    }
-
     let qs = "?";
-    if (titleQ.trim())    qs += `title=${encodeURIComponent(titleQ.trim())}&`;
-    if (barcodeQ.trim())  qs += `barcode=${encodeURIComponent(barcodeQ.trim())}&`;
-    if (altCallQ.trim())  qs += `alternative_call_number=${encodeURIComponent(altCallQ.trim())}&`;
-    if (callnoQ.trim())   qs += `call_number=${encodeURIComponent(callnoQ.trim())}&`;
-    if (policyFilter)     qs += `item_policy=${encodeURIComponent(policyFilter)}&`;
-    if (locationFilter)   qs += `location_code=${encodeURIComponent(locationFilter)}&`;
-    if (statusFilter)     qs += `status=${encodeURIComponent(statusFilter)}&`;
+    if (titleQ.trim()) qs += `title=${encodeURIComponent(titleQ.trim())}&`;
+    if (barcodeQ.trim()) qs += `barcode=${encodeURIComponent(barcodeQ.trim())}&`;
+    if (altCallQ.trim()) qs += `alternative_call_number=${encodeURIComponent(altCallQ.trim())}&`;
+    if (callnoQ.trim()) qs += `call_number=${encodeURIComponent(callnoQ.trim())}&`;
+    if (policyFilter) qs += `item_policy=${encodeURIComponent(policyFilter)}&`;
+    if (locationFilter) qs += `location_code=${encodeURIComponent(locationFilter)}&`;
+    if (statusFilter) qs += `status=${encodeURIComponent(statusFilter)}&`;
     if (qs.endsWith("&")) qs = qs.slice(0, -1);
 
     try {
-      const resp = await fetch("/catalog/search/analytics" + qs);
+      const token = localStorage.getItem('token');
+      const resp = await fetch("/catalog/search/analytics" + qs, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
       if (resp.ok) {
         setResults(await resp.json());
       } else {
@@ -77,40 +71,6 @@ export default function AnalyticsSearch() {
       setError("Network error. Try again.");
       setSearched(true);
     }
-  };
-
-  const downloadCSV = () => {
-    if (!results.length) return;
-    const header = [
-      "ID",
-      "Barcode",
-      "Alt Call #",
-      "Title",
-      "Call #",
-      "Status",
-      "Item Policy",
-      "Location Code"
-    ];
-    const rows = results.map((a) => [
-      a.id,
-      a.barcode,
-      a.alternative_call_number,
-      a.title,
-      a.call_number,
-      a.status,
-      a.item_policy,
-      a.location_code
-    ]);
-    const csv = [header, ...rows]
-      .map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `analytics-search-${new Date().toISOString()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   return (

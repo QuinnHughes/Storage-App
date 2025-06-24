@@ -5,21 +5,18 @@ import react        from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 3000,            // or whatever you’re running on
+    port: 3000,
     proxy: {
-      // proxy any request starting with /auth to localhost:8000
       '/auth': {
         target: 'http://localhost:8000',
         changeOrigin: true,
         secure: false,
       },
-      // and requests for /catalog
       '/catalog': {
         target: 'http://localhost:8000',
         changeOrigin: true,
         secure: false,
       },
-      // plus /upload, /weed, etc. as needed
       '/upload': {
         target: 'http://localhost:8000',
         changeOrigin: true,
@@ -29,7 +26,12 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
         secure: false,
-      }
+      },
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      },
     }
   }
-})
+});

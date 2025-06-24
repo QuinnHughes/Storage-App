@@ -1,5 +1,3 @@
-// src/pages/AnalyticsErrors.jsx
-
 import React, { useEffect, useState } from "react";
 
 export default function AnalyticsErrors() {
@@ -8,7 +6,12 @@ export default function AnalyticsErrors() {
   const [errorMsg, setErrorMsg] = useState(null);
 
   useEffect(() => {
-    fetch("/catalog/analytics-errors")
+    const token = localStorage.getItem('token');
+    fetch("/catalog/analytics-errors", {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
