@@ -196,10 +196,9 @@ def get_analytics_filters(db: Session = Depends(get_db)):
     summary="Get a list of every empty slot per shelf",
 )
 def get_empty_slot_details(db: Session = Depends(get_db)):
-    sql = """
-    SELECT floor, range, ladder, shelf, empty_position
-    FROM empty_slot_details
-    ORDER BY floor, range, ladder, shelf, empty_position
-    """
-    rows = db.execute(text(sql)).mappings().all()
+    rows = db.execute(text("""
+        SELECT floor, "range", ladder, shelf, empty_position
+        FROM empty_slot_details
+        ORDER BY floor, "range", ladder, shelf, empty_position
+    """)).mappings().all()
     return [EmptySlotDetail(**r) for r in rows]

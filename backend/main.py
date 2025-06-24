@@ -12,6 +12,8 @@ from api.analytics_errors import router as analytics_errors_router
 from api.sudoc            import router as sudoc_router
 from api.auth             import router as auth_router
 from api.logs             import router as logs_router
+from api.weed             import router as weed_router
+
 from api.users import router as users_router
 from core.auth        import (
     require_viewer,
@@ -75,6 +77,13 @@ app.include_router(
     dependencies=[Depends(require_cataloger)],
 )
 
+# Weeded items router
+app.include_router(
+    weed_router,
+    prefix="/weed",
+    tags=["Weeded Items"],
+    dependencies=[Depends(require_cataloger)],
+)
 # ── ADMIN-ONLY ROUTES ─────────────────────────────────────────────────────────
 app.include_router(
     logs_router,
