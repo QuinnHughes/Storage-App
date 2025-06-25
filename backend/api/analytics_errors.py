@@ -11,7 +11,7 @@ from schemas.analytics import AnalyticsErrorRead
 router = APIRouter()
 
 @router.get(
-    "/analytics-errors",
+    "/",  # changed from "/analytics-errors" to "/" so that with your prefix "/catalog/analytics-errors" this becomes GET /catalog/analytics-errors
     response_model=List[AnalyticsErrorRead],
     summary="List all analytics error records"
 )

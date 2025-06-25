@@ -7,7 +7,7 @@ export default function AnalyticsErrors() {
 
   useEffect(() => {
     const token = localStorage.getItem('token');
-    fetch("/catalog/analytics-errors", {
+    fetch("/catalog/analytics-errors/", {
       headers: {
         Authorization: `Bearer ${token}`
       }

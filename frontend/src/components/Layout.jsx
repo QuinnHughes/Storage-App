@@ -9,6 +9,7 @@ const Layout = () => (
       <h3>Getting Started</h3>
       <ul>
         <li><Link to="/">General Overview</Link></li>
+        <li><Link to="/login"> login</Link></li>
       </ul>
 
       <h3>Searches</h3>
