@@ -13,6 +13,7 @@ from db.models import Base, User
 
 from api.upload import router as upload_router
 from api.catalog import router as catalog_router
+from api.analytics import router as analytics_router
 from api.analytics_errors import router as analytics_errors_router
 from api.sudoc import router as sudoc_router
 from api.auth import router as auth_router
@@ -61,6 +62,12 @@ app.include_router(
     prefix="/catalog/analytics-errors",
     tags=["AnalyticsErrors"],
     dependencies=[Depends(require_cataloger)],
+)
+app.include_router(
+    analytics_router,
+    prefix="/catalog",
+    tags=["Analytics"],
+    dependencies=[Depends(require_viewer)],
 )
 app.include_router(
     catalog_router,

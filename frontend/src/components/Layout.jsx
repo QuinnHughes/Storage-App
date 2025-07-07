@@ -8,8 +8,9 @@ const Layout = () => (
 
       <h3>Getting Started</h3>
       <ul>
-        <li><Link to="/">General Overview</Link></li>
         <li><Link to="/login"> login</Link></li>
+        <li><Link to="/">General Overview</Link></li>
+       
       </ul>
 
       <h3>Searches</h3>
@@ -23,8 +24,8 @@ const Layout = () => (
       <h3>Record Editing</h3>
       <ul>
         <li><Link to="/item-manager">Item Manager</Link></li>
-        <li><Link to="/upload-items">Upload Items</Link></li>
-        <li><Link to="/upload-analytics">Upload Analytics</Link></li>
+        <li><Link to="/create-items">Item Creator</Link></li>
+        <li><Link to="/combined-upload">Upload Files</Link></li>
         <li><Link to="/review-needed">Review Needed</Link></li>
         <li><Link to="/admin-edit">Admin Edit</Link></li>
       </ul>

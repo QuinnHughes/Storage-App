@@ -30,7 +30,10 @@ def upload_weed_list(
           .str.lower()
           .str.replace(r"\s+", "_", regex=True)
     )
-
+    # Normalizes the nefarious U and u so they actually show up as weeded by the double barcode logic
+    df["barcode"]         = df["barcode"].astype(str).str.strip().str.upper()
+    df["scanned_barcode"] = df["scanned_barcode"].astype(str).str.strip().str.upper()
+   
     # 3) Ensure required columns exist
     for col in ("alternative_call_number", "barcode", "scanned_barcode"):
         if col not in df.columns:

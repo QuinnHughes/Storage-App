@@ -11,8 +11,8 @@ import ItemSearch from "./pages/ItemSearch";
 import AnalyticsSearch from "./pages/AnalyticsSearch";
 import AnalyticsErrors from "./pages/AnalyticsErrors";
 import ItemManager from "./pages/ItemManager";
-import UploadItems from "./pages/UploadItems";
-import UploadAnalytics from "./pages/UploadAnalytics";
+import CreateItems from "./pages/CreateItems";
+import CombinedUpload from "./pages/CombinedUpload";
 import ReviewNeeded from "./pages/ReviewNeeded";
 import AdminEdit from "./pages/AdminEdit";
 import Documentation from "./pages/Documentation";
@@ -39,8 +39,8 @@ export default function App() {
           <Route path="analytics-search" element={<AnalyticsSearch />} />
           <Route path="analytics-errors" element={<AnalyticsErrors />} />
           <Route path="item-manager" element={<ItemManager />} />
-          <Route path="upload-items" element={<UploadItems />} />
-          <Route path="upload-analytics" element={<UploadAnalytics />} />
+          <Route path="create-items" element={<CreateItems />} />
+          <Route path="combined-upload" element={<CombinedUpload />} />
           <Route path="review-needed" element={<ReviewNeeded />} />
           <Route path="admin-edit" element={<AdminEdit />} />
           <Route path="documentation" element={<Documentation />} />
