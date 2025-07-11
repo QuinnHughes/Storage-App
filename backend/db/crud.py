@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert
 from typing import List
 
 from . import models
@@ -102,28 +103,57 @@ def get_weeded_items(db: Session, *, skip: int = 0, limit: int = 100):
     return db.query(models.WeededItem).offset(skip).limit(limit).all()
 
 def bulk_create_weeded_items(
-    db: Session, 
+    db: Session,
     wis: List[WeededItemCreate]
 ) -> List[models.WeededItem]:
     """
-    Efficiently insert a batch of weeded items and return the resulting ORM objects.
-    Uses bulk_save_objects with return_defaults=True to get back primary keys/defaults.
+    Inserts a batch of weeded items, skipping any duplicates on (alternative_call_number, barcode),
+    and returns only the newly created ORM objects.
     """
-    objs: List[models.WeededItem] = []
+    # 1) Prepare list of dicts
+    rows = []
     for wi in wis:
-        is_weeded = (wi.scanned_barcode == wi.barcode) if wi.scanned_barcode else False
-        objs.append(
-            models.WeededItem(
-                alternative_call_number = wi.alternative_call_number,
-                barcode                 = wi.barcode,
-                scanned_barcode         = wi.scanned_barcode,
-                is_weeded               = is_weeded,
-            )
+        rows.append({
+            "alternative_call_number": wi.alternative_call_number,
+            "barcode":                 wi.barcode,
+            "scanned_barcode":         wi.scanned_barcode,
+            "is_weeded":               (wi.scanned_barcode == wi.barcode) if wi.scanned_barcode else False,
+        })
+
+    # 2) Build INSERT ... ON CONFLICT DO NOTHING statement
+    stmt = (
+        insert(models.WeededItem)
+        .values(rows)
+        .on_conflict_do_nothing(
+            constraint="weeded_items_alternative_call_number_barcode_key"
         )
-    # bulk‐save all at once, pulling back defaults (e.g. id, created_at)
-    db.bulk_save_objects(objs, return_defaults=True)
+        .returning(
+            models.WeededItem.id,
+            models.WeededItem.alternative_call_number,
+            models.WeededItem.barcode,
+            models.WeededItem.scanned_barcode,
+            models.WeededItem.is_weeded,
+            models.WeededItem.created_at
+        )
+    )
+
+    # 3) Execute and commit
+    result = db.execute(stmt)
     db.commit()
-    return objs
+
+    # 4) Hydrate and return the newly inserted ORM objects
+    inserted = result.fetchall()
+    return [
+        models.WeededItem(
+            id=row.id,
+            alternative_call_number=row.alternative_call_number,
+            barcode=row.barcode,
+            scanned_barcode=row.scanned_barcode,
+            is_weeded=row.is_weeded,
+            created_at=row.created_at,
+        )
+        for row in inserted
+    ]
 
 def get_users(db: Session) -> List[User]:
     """Return all users"""

@@ -1,5 +1,3 @@
-// src/pages/ItemSearch.jsx
-
 import { useState, useEffect } from "react";
 
 export default function ItemSearch() {
@@ -16,11 +14,16 @@ export default function ItemSearch() {
   const [ladders, setLadders] = useState([]);
   const [shelves, setShelves] = useState([]);
 
-  // Fetch distinct dropdown values on mount
+  // ✅ Fetch dropdown filter values on mount
   useEffect(() => {
     async function fetchFilters() {
       try {
-        const resp = await fetch("/catalog/search/item-filters");
+        const token = localStorage.getItem('token');
+        const resp = await fetch("/catalog/search/item-filters", {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
         if (!resp.ok) throw new Error(`Status ${resp.status}`);
         const data = await resp.json();
         setFloors(data.floors || []);
@@ -34,8 +37,8 @@ export default function ItemSearch() {
     fetchFilters();
   }, []);
 
-  const handleSearch = async (e) => {
-    e.preventDefault();
+  // ✅ Perform search
+  const handleSearch = async () => {
     if (
       !query.trim() &&
       !floorFilter &&
@@ -43,14 +46,15 @@ export default function ItemSearch() {
       !ladderFilter &&
       !shelfFilter
     ) {
+      setResults([]);
+      setSearched(true);
       return;
     }
 
     try {
       let qs = "?";
       if (query) {
-        qs += `barcode=${encodeURIComponent(query)}&`;
-        qs += `alternative_call_number=${encodeURIComponent(query)}&`;
+        qs += `barcode=${encodeURIComponent(query)}&alternative_call_number=${encodeURIComponent(query)}&`;
       }
       if (floorFilter) qs += `floor=${encodeURIComponent(floorFilter)}&`;
       if (rangeFilter) qs += `range_code=${encodeURIComponent(rangeFilter)}&`;
@@ -58,7 +62,13 @@ export default function ItemSearch() {
       if (shelfFilter) qs += `shelf=${encodeURIComponent(shelfFilter)}&`;
       if (qs.endsWith("&")) qs = qs.slice(0, -1);
 
-      const resp = await fetch("/catalog/search/items" + qs);
+      const token = localStorage.getItem('token');
+      const resp = await fetch("/catalog/search/items" + qs, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
       if (!resp.ok) {
         setResults([]);
         setSearched(true);
@@ -74,26 +84,10 @@ export default function ItemSearch() {
     }
   };
 
-  // Build and download a CSV of Title | Barcode | Location | Status
-  const exportCSV = () => {
-    if (results.length === 0) return;
-    const header = ["Title", "Barcode", "Location", "Status"];
-    const rows = results.map(item => [
-      item.analytics?.title || "",
-      item.barcode,
-      item.alternative_call_number,
-      item.analytics?.status || "",
-    ]);
-    const csvContent = [header, ...rows]
-      .map(r => r.map(v => `"${v.replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `item-search-${new Date().toISOString()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // ✅ Helper to change filter & auto-search
+  const handleFilterChange = (setter) => (e) => {
+    setter(e.target.value);
+    handleSearch();
   };
 
   return (
@@ -101,7 +95,10 @@ export default function ItemSearch() {
       <h1 className="text-3xl font-bold mb-6">Item Search</h1>
 
       <form
-        onSubmit={handleSearch}
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSearch();
+        }}
         className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8"
       >
         <input
@@ -115,52 +112,44 @@ export default function ItemSearch() {
         <select
           className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
           value={floorFilter}
-          onChange={(e) => setFloorFilter(e.target.value)}
+          onChange={handleFilterChange(setFloorFilter)}
         >
           <option value="">Filter by Floor</option>
           {floors.map((f) => (
-            <option key={f} value={f}>
-              {f}
-            </option>
+            <option key={f} value={f}>{f}</option>
           ))}
         </select>
 
         <select
           className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
           value={rangeFilter}
-          onChange={(e) => setRangeFilter(e.target.value)}
+          onChange={handleFilterChange(setRangeFilter)}
         >
           <option value="">Filter by Range</option>
           {ranges.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
+            <option key={r} value={r}>{r}</option>
           ))}
         </select>
 
         <select
           className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
           value={ladderFilter}
-          onChange={(e) => setLadderFilter(e.target.value)}
+          onChange={handleFilterChange(setLadderFilter)}
         >
           <option value="">Filter by Ladder</option>
           {ladders.map((l) => (
-            <option key={l} value={l}>
-              {l}
-            </option>
+            <option key={l} value={l}>{l}</option>
           ))}
         </select>
 
         <select
           className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
           value={shelfFilter}
-          onChange={(e) => setShelfFilter(e.target.value)}
+          onChange={handleFilterChange(setShelfFilter)}
         >
           <option value="">Filter by Shelf</option>
           {shelves.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
+            <option key={s} value={s}>{s}</option>
           ))}
         </select>
 
@@ -174,7 +163,7 @@ export default function ItemSearch() {
 
       {!searched && (
         <p className="text-gray-600 text-center">
-          Enter a barcode or alternative call number, or use the filters above.
+          Enter a barcode or alt call number, or use the filters above.
         </p>
       )}
 
@@ -188,7 +177,25 @@ export default function ItemSearch() {
         <>
           <div className="flex justify-end mb-4">
             <button
-              onClick={exportCSV}
+              onClick={() => {
+                const header = ["Title", "Barcode", "Location", "Status"];
+                const rows = results.map(item => [
+                  item.analytics?.title || "",
+                  item.barcode,
+                  item.alternative_call_number,
+                  item.analytics?.status || "",
+                ]);
+                const csvContent = [header, ...rows]
+                  .map(r => r.map(v => `"${v.replace(/"/g, '""')}"`).join(","))
+                  .join("\n");
+                const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `item-search-${new Date().toISOString()}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
               className="bg-green-600 text-white font-medium px-4 py-2 rounded hover:bg-green-700 transition"
             >
               Export CSV

@@ -1,21 +1,27 @@
 # backend/main.py
 
+import os
+import sys
+# Add the backend directory itself to sys.path so "db", "api", etc. resolve correctly
+sys.path.insert(0, os.path.dirname(__file__))
+
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from db.session import engine
-from db.models  import Base, User
+from db.models import Base, User
 
-from api.upload           import router as upload_router
-from api.catalog          import router as catalog_router
+from api.upload import router as upload_router
+from api.catalog import router as catalog_router
+from api.analytics import router as analytics_router
 from api.analytics_errors import router as analytics_errors_router
-from api.sudoc            import router as sudoc_router
-from api.auth             import router as auth_router
-from api.logs             import router as logs_router
-from api.weed             import router as weed_router
-
+from api.sudoc import router as sudoc_router
+from api.auth import router as auth_router
+from api.logs import router as logs_router
+from api.weed import router as weed_router
 from api.users import router as users_router
-from core.auth        import (
+
+from core.auth import (
     require_viewer,
     require_book_worm,
     require_cataloger,
@@ -41,49 +47,47 @@ app.add_middleware(
 app.add_middleware(LoggingMiddleware)
 
 # ── AUTHENTICATION ───────────────────────────────────────────────────────────
-# /auth/token from api/auth.py
+# Registers POST /auth/token (and GET /auth/me if implemented)
 app.include_router(auth_router)
 
 # ── PROTECTED ROUTES ─────────────────────────────────────────────────────────
-# Uploads (add/edit items) require book_worm+
 app.include_router(
     upload_router,
     prefix="/upload",
     tags=["Upload"],
     dependencies=[Depends(require_book_worm)],
 )
-
-# Analytics-errors management requires cataloger+
 app.include_router(
     analytics_errors_router,
     prefix="/catalog/analytics-errors",
     tags=["AnalyticsErrors"],
     dependencies=[Depends(require_cataloger)],
 )
-
-# Catalog searches require viewer+
+app.include_router(
+    analytics_router,
+    prefix="/catalog",
+    tags=["Analytics"],
+    dependencies=[Depends(require_viewer)],
+)
 app.include_router(
     catalog_router,
     prefix="/catalog",
     tags=["Catalog"],
     dependencies=[Depends(require_viewer)],
 )
-
-# SuDoc endpoints require cataloger+
 app.include_router(
     sudoc_router,
     prefix="/catalog/sudoc",
     tags=["SuDoc"],
     dependencies=[Depends(require_cataloger)],
 )
-
-# Weeded items router
 app.include_router(
     weed_router,
     prefix="/weed",
     tags=["Weeded Items"],
     dependencies=[Depends(require_cataloger)],
 )
+
 # ── ADMIN-ONLY ROUTES ─────────────────────────────────────────────────────────
 app.include_router(
     logs_router,
@@ -93,9 +97,7 @@ app.include_router(
 )
 
 @app.get("/admin-only", tags=["Admin"])
-def read_admin_data(
-    current_user: User = Depends(require_admin)
-):
+def read_admin_data(current_user: User = Depends(require_admin)):
     return {"msg": f"Hello {current_user.username}, you’re an admin!"}
 
 # ── USER MANAGEMENT (admin only) ─────────────────────────────────────────────
@@ -105,5 +107,3 @@ app.include_router(
     tags=["Users"],
     dependencies=[Depends(require_admin)],
 )
-
-

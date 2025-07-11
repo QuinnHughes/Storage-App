@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-export default function UploadAnalytics() {
+export default function UploadItems() {
   const [file, setFile] = useState(null);
   const [feedback, setFeedback] = useState(null);
 
@@ -17,9 +17,13 @@ export default function UploadAnalytics() {
     const form = new FormData();
     form.append("file", file);
 
-    try {
-      const resp = await fetch("/upload/analytics-file", {
+        try {
+      const token = localStorage.getItem('token');
+      const resp = await fetch("/upload/items-file", {
         method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
         body: form,
       });
 
@@ -50,11 +54,11 @@ export default function UploadAnalytics() {
 
   return (
     <div className="max-w-lg mx-auto space-y-4">
-      <h3 className="text-xl font-semibold">Upload Analytics</h3>
+      <h3 className="text-xl font-semibold">Upload Items</h3>
       <input type="file" accept=".xlsx,.xls" onChange={handleFileChange} />
       <button
         onClick={handleUpload}
-        className="mt-2 px-4 py-2 bg-green-600 text-white rounded"
+        className="mt-2 px-4 py-2 bg-blue-600 text-white rounded"
       >
         Upload
       </button>
