@@ -10,7 +10,6 @@ const Layout = () => (
       <ul>
         <li><Link to="/login"> login</Link></li>
         <li><Link to="/">General Overview</Link></li>
-       
       </ul>
 
       <h3>Searches</h3>
@@ -27,19 +26,18 @@ const Layout = () => (
         <li><Link to="/create-items">Item Creator</Link></li>
         <li><Link to="/combined-upload">Upload Files</Link></li>
         <li><Link to="/review-needed">Review Needed</Link></li>
-        <li><Link to="/admin-edit">Admin Edit</Link></li>
+        <li><Link to="/sudoc-records">Sudoc Records</Link></li>
       </ul>
 
       <h3>Admin Section</h3>
       <ul>
         <li><Link to="/documentation">Documentation</Link></li>
       </ul>
-
     </nav>
 
     <main className="main-content">
-      {/* Center & constrain everything inside */}
-      <div className="mx-auto max-w-screen-xl px-4 sm:px-6 lg:px-8">
+      {/* removed max-w-screen-xl and mx-auto to allow full width */}
+      <div className="px-4 sm:px-6 lg:px-8">
         <Outlet />
       </div>
     </main>

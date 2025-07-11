@@ -1,6 +1,14 @@
+/* Add these lines explicitly at the top */
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
 .layout {
   display: flex;
   min-height: 100vh;
+  margin: 0;   /* ensure no margin */
+  padding: 0;  /* ensure no padding */
 }
 
 .sidebar {
@@ -44,10 +52,9 @@
 }
 
 .main-content {
-  padding: 30px;
+  padding: 0px;
   flex-grow: 1;
   overflow-y: auto;
-  /* constrain & center */
-  max-width: 1200px;   /* or tweak to taste */
+  max-width: 100%;
   margin: 0 auto;
 }

@@ -14,7 +14,7 @@ import ItemManager from "./pages/ItemManager";
 import CreateItems from "./pages/CreateItems";
 import CombinedUpload from "./pages/CombinedUpload";
 import ReviewNeeded from "./pages/ReviewNeeded";
-import AdminEdit from "./pages/AdminEdit";
+import SudocRecords from "./pages/SudocRecords";
 import Documentation from "./pages/Documentation";
 
 export default function App() {
@@ -42,7 +42,7 @@ export default function App() {
           <Route path="create-items" element={<CreateItems />} />
           <Route path="combined-upload" element={<CombinedUpload />} />
           <Route path="review-needed" element={<ReviewNeeded />} />
-          <Route path="admin-edit" element={<AdminEdit />} />
+          <Route path="sudoc-records" element={<SudocRecords />} />
           <Route path="documentation" element={<Documentation />} />
         </Route>
 
