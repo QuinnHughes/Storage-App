@@ -17,3 +17,4 @@ backend/db/__pycache__/
 backend/schemas/__pycache__/
 backend/middleware/__pycache__/
 backend/cgp_sudoc_index/
+backend/Record_sets/
