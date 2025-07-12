@@ -22,11 +22,11 @@ const Layout = () => (
 
       <h3>Record Editing</h3>
       <ul>
-        <li><Link to="/item-manager">Item Manager</Link></li>
         <li><Link to="/create-items">Item Creator</Link></li>
         <li><Link to="/combined-upload">Upload Files</Link></li>
         <li><Link to="/review-needed">Review Needed</Link></li>
         <li><Link to="/sudoc-records">Sudoc Records</Link></li>
+        <li><Link to="/sudoc-editor">Sudoc Editor</Link></li>
       </ul>
 
       <h3>Admin Section</h3>

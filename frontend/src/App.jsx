@@ -10,12 +10,12 @@ import EmptySlots from "./pages/EmptySlots";
 import ItemSearch from "./pages/ItemSearch";
 import AnalyticsSearch from "./pages/AnalyticsSearch";
 import AnalyticsErrors from "./pages/AnalyticsErrors";
-import ItemManager from "./pages/ItemManager";
 import CreateItems from "./pages/CreateItems";
 import CombinedUpload from "./pages/CombinedUpload";
 import ReviewNeeded from "./pages/ReviewNeeded";
 import SudocRecords from "./pages/SudocRecords";
 import Documentation from "./pages/Documentation";
+import SudocEditor from "./pages/SudocEditor";
 
 export default function App() {
   return (
@@ -38,7 +38,7 @@ export default function App() {
           <Route path="item-search" element={<ItemSearch />} />
           <Route path="analytics-search" element={<AnalyticsSearch />} />
           <Route path="analytics-errors" element={<AnalyticsErrors />} />
-          <Route path="item-manager" element={<ItemManager />} />
+          <Route path="sudoc-editor" element={<SudocEditor />} />
           <Route path="create-items" element={<CreateItems />} />
           <Route path="combined-upload" element={<CombinedUpload />} />
           <Route path="review-needed" element={<ReviewNeeded />} />
