@@ -1,32 +1,38 @@
 // src/pages/SudocRecords.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "axios";
-import SudocEditor from "./SudocEditor";
 
 export default function SudocRecords() {
-  const [query, setQuery]         = useState("");
+  const [query, setQuery] = useState("");
   const [titleQuery, setTitleQuery] = useState("");
-  const [results, setResults]     = useState([]);
-  const [page, setPage]           = useState(1);
-  const [loading, setLoading]     = useState(false);
-  const [error, setError]         = useState("");
-  const [checkedOut, setCheckedOut] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("checkedOut")) || []; }
-    catch { return []; }
-  });
-  const [showEditor, setShowEditor] = useState(false);
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [checkedOutIds, setCheckedOutIds] = useState(new Set());
+  const [page, setPage] = useState(1);
+  const limit = 20; // items per page
 
-  const fetchResults = async (p = 1) => {
-    if (!query) { setResults([]); return; }
-    setLoading(true); setError("");
-    const token = localStorage.getItem("token");
+  // Hydrate checked-out IDs from localStorage on mount
+  useEffect(() => {
+    const saved = JSON.parse(localStorage.getItem("checkedOut") || "[]");
+    setCheckedOutIds(new Set(saved.map(r => r.id)));
+  }, []);
+
+  const fetchResults = async (newPage = 1) => {
+    if (!query && !titleQuery) {
+      setResults([]);
+      return;
+    }
+    setLoading(true);
+    setError("");
     try {
+      const token = localStorage.getItem("token");
       const { data } = await axios.get("/catalog/sudoc/search/sudoc", {
-        params: { query, title: titleQuery, limit: 20, page: p },
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        params: { query, title: titleQuery, limit, page: newPage },
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
       setResults(data);
-      setPage(p);
+      setPage(newPage);
     } catch (e) {
       setError(e.response?.data?.detail || "Search failed");
     } finally {
@@ -34,108 +40,137 @@ export default function SudocRecords() {
     }
   };
 
-  const handleSearch    = () => fetchResults(1);
-  const handlePageClick = (p) => fetchResults(p);
-
-  const checkout = (rec) => {
-    const arr = [...checkedOut.filter((r) => r.id !== rec.id), rec];
-    setCheckedOut(arr);
-    localStorage.setItem("checkedOut", JSON.stringify(arr));
-    setShowEditor(true);
+  const handleCheckout = rec => {
+    const saved = JSON.parse(localStorage.getItem("checkedOut") || "[]");
+    if (!saved.find(r => r.id === rec.id)) {
+      const nextSaved = [...saved, rec];
+      localStorage.setItem("checkedOut", JSON.stringify(nextSaved));
+      setCheckedOutIds(prev => new Set(prev).add(rec.id));
+    }
   };
 
+  // Pagination helpers
+  const hasPrev = page > 1;
+  const hasNext = results.length === limit;
+  const delta = 2; // how many pages to show on either side
+  const startPage = Math.max(1, page - delta);
+  const endPage   = page + delta;
+
   return (
-    <div className="p-6 max-w-full mx-auto space-y-8">
-      {/* Search */}
-      <div className="rounded-lg p-6 bg-white shadow">
+    <div className="p-6 max-w-100% mx-auto space-y-8">
+      <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-2xl font-semibold mb-4">SuDoc Search</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="SuDoc…"
+            onChange={e => setQuery(e.target.value)}
+            placeholder="SuDoc call number..."
             className="border p-2 rounded"
           />
           <input
             value={titleQuery}
-            onChange={(e) => setTitleQuery(e.target.value)}
-            placeholder="Title…"
+            onChange={e => setTitleQuery(e.target.value)}
+            placeholder="Title contains..."
             className="border p-2 rounded"
           />
           <button
-            onClick={handleSearch}
+            onClick={() => fetchResults(1)}
             disabled={loading}
             className={`px-4 py-2 rounded font-medium ${
-              loading ? "bg-gray-400" : "bg-blue-600 hover:bg-blue-700 text-white"
+              loading
+                ? "bg-gray-400 text-gray-200 cursor-default"
+                : "bg-blue-600 hover:bg-blue-700 text-white"
             }`}
           >
-            {loading ? "…" : "Search"}
+            {loading ? "Searching…" : "Search"}
           </button>
         </div>
         {error && <p className="mt-2 text-red-600">{error}</p>}
       </div>
 
-      {/* Results */}
       {results.length > 0 && (
-        <div className="bg-white shadow rounded-lg p-6">
-          <h3 className="text-xl font-semibold mb-4">Results</h3>
+        <div className="bg-white rounded-lg shadow p-6 space-y-4">
+          <h3 className="text-xl font-semibold">Results (Page {page})</h3>
           <table className="w-full table-auto">
             <thead className="bg-gray-50">
               <tr>
-                {["SuDoc","Title","OCLC","Action"].map((h) => (
+                {["SuDoc", "Title", "OCLC", "Action"].map(h => (
                   <th key={h} className="px-4 py-2 text-left">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {results.map((rec) => (
+              {results.map(rec => (
                 <tr key={rec.id} className="border-b">
                   <td className="px-4 py-2">{rec.sudoc}</td>
                   <td className="px-4 py-2">{rec.title}</td>
                   <td className="px-4 py-2">{rec.oclc || "—"}</td>
                   <td className="px-4 py-2">
-                    <button
-                      onClick={() => checkout(rec)}
-                      className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded"
-                    >
-                      Check Out
-                    </button>
+                    {checkedOutIds.has(rec.id) ? (
+                      <button
+                        disabled
+                        className="bg-green-500 text-white px-3 py-1 rounded opacity-80 cursor-not-allowed"
+                      >
+                        ✓
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleCheckout(rec)}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded"
+                      >
+                        Checkout
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          {/* Pagination */}
-          <div className="mt-4 flex justify-center space-x-2">
-            {[1,2,3,4,5].map((p) => (
-              <button
-                key={p}
-                onClick={() => handlePageClick(p)}
-                className={`px-3 py-1 rounded ${
-                  p === page ? "bg-blue-600 text-white" : "bg-gray-200"
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Inline Editor */}
-      {showEditor && (
-        <div className="bg-gray-50 border p-6 rounded-lg">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-xl font-semibold">Editor</h3>
+          {/* Pagination controls */}
+          <div className="flex items-center justify-center space-x-2 mt-4">
             <button
-              onClick={() => setShowEditor(false)}
-              className="text-sm text-gray-600 hover:underline"
+              onClick={() => fetchResults(page - 1)}
+              disabled={!hasPrev || loading}
+              className={`px-4 py-2 rounded ${
+                hasPrev
+                  ? "bg-gray-200 hover:bg-gray-300"
+                  : "bg-gray-100 text-gray-400 cursor-not-allowed"
+              }`}
             >
-              Close
+              ‹ Prev
+            </button>
+
+            {Array.from({ length: endPage - startPage + 1 }, (_, idx) => {
+              const p = startPage + idx;
+              return (
+                <button
+                  key={p}
+                  onClick={() => fetchResults(p)}
+                  disabled={p === page || loading}
+                  className={`px-3 py-1 rounded ${
+                    p === page
+                      ? "bg-blue-600 text-white cursor-default"
+                      : "bg-gray-200 hover:bg-gray-300 text-gray-700"
+                  }`}
+                >
+                  {p}
+                </button>
+              );
+            })}
+
+            <button
+              onClick={() => fetchResults(page + 1)}
+              disabled={!hasNext || loading}
+              className={`px-4 py-2 rounded ${
+                hasNext
+                  ? "bg-gray-200 hover:bg-gray-300"
+                  : "bg-gray-100 text-gray-400 cursor-not-allowed"
+              }`}
+            >
+              Next ›
             </button>
           </div>
-          <SudocEditor records={checkedOut} />
         </div>
       )}
     </div>

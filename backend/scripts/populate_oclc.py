@@ -1,76 +1,52 @@
-#!/usr/bin/env python3
-"""
-populate_oclc.py
-
-Populate the OCLC field in your cgp_sudoc_index.db by scanning
-your local MARC ZIP bundles for OCLC numbers.
-
-Usage:
-    cd backend/scripts
-    python populate_oclc.py [--repo /path/to/Record Sets]
-
-By default it looks for a "Record Sets" folder in the parent directory
-of this script (i.e. backend/Record Sets) and for the DB at
-backend/cgp_sudoc_index.db.
-"""
-
 import os, sys, sqlite3, re, argparse, zipfile
 from pymarc import MARCReader
 
 
 def extract_oclc_from_record(rec):
-    """
-    Extract an OCLC from a pymarc Record:
-    1) 035$a fields tagged with "(OCoLC)"
-    2) Fallback: control field 001 if present and numeric
-    """
-    # 035$a search
+    # 1) look for 035$a starting with "(OCoLC)"
     for fld in rec.get_fields('035'):
         for val in fld.get_subfields('a'):
             if val.startswith('(OCoLC)'):
                 m = re.match(r'\(OCoLC\)(\d+)', val)
                 if m:
                     return m.group(1)
-    # fallback on 001 if exists
-    cf = rec['001']
+    # 2) fallback to 001 if purely numeric
+    cf = rec.get_fields('001')
     if cf:
-        v = cf.value().strip()
+        v = cf[0].value().strip()
         if v.isdigit():
             return v
     return None
 
 
 def main(args):
+    # locate scripts & data
     script_dir = os.path.dirname(__file__)
     parent_dir = os.path.abspath(os.path.join(script_dir, os.pardir))
-    # default Record Sets path
     default_rs = os.path.join(parent_dir, 'Record_Sets')
-    if args.repo:
-        repo_dir = os.path.abspath(args.repo)
-    elif os.path.isdir(default_rs):
-        repo_dir = default_rs
-    else:
-        repo_dir = parent_dir
-        print(f"⚠️ 'Record Sets' not found at {default_rs}, scanning {parent_dir}", file=sys.stderr)
-
-    if not os.path.isdir(repo_dir):
-        print(f"❌ Repo not found: {repo_dir}", file=sys.stderr)
-        sys.exit(1)
+    repo_dir = os.path.abspath(args.repo) if args.repo else (
+        default_rs if os.path.isdir(default_rs) else parent_dir
+    )
 
     db_path = os.path.abspath(args.db)
+    if not os.path.isdir(repo_dir):
+        print(f"❌ Record Sets not found: {repo_dir}", file=sys.stderr)
+        sys.exit(1)
     if not os.path.isfile(db_path):
         print(f"❌ DB not found: {db_path}", file=sys.stderr)
         sys.exit(1)
 
     conn = sqlite3.connect(db_path, timeout=30, check_same_thread=False)
+    # speed-ups
     conn.execute('PRAGMA busy_timeout = 30000;')
     conn.execute('PRAGMA synchronous = OFF;')
     conn.execute('PRAGMA journal_mode = MEMORY;')
     conn.execute('PRAGMA temp_store = MEMORY;')
     cur = conn.cursor()
 
+    # find all ZIPs with missing OCLC
     cur.execute("SELECT DISTINCT zip_file FROM records WHERE oclc IS NULL;")
-    zip_files = sorted(r[0] for r in cur.fetchall())
+    zip_files = [r[0] for r in cur.fetchall()]
     if not zip_files:
         print("✅ No missing OCLC entries—done.")
         return
@@ -85,43 +61,56 @@ def main(args):
             print(f"⚠️ Missing ZIP: {zip_path}", file=sys.stderr)
             continue
 
+        # 1) grab all rowids *and* their SuDoc call numbers
         cur.execute(
-            "SELECT rowid FROM records WHERE zip_file = ? AND oclc IS NULL ORDER BY rowid",
+            "SELECT rowid, sudoc FROM records WHERE zip_file = ? AND oclc IS NULL;",
             (zf,)
         )
-        rowids = [r[0] for r in cur.fetchall()]
-        if not rowids:
+        rows = cur.fetchall()
+        if not rows:
             continue
 
-        print(f"🔍 Processing {zf} ({len(rowids)} rows)…")
+        # build a map: callNumber → rowid
+        sudoc_to_rowid = { sudoc.strip(): rid for rid, sudoc in rows }
         ops = []
 
+        print(f"🔍 Processing {zf} ({len(rows)} missing)…")
         try:
             with zipfile.ZipFile(zip_path) as z:
-                members = [n for n in z.namelist() if n.lower().endswith('.mrc')]
-                if not members:
-                    print(f"❌ No .mrc in {zf}", file=sys.stderr)
-                    continue
-                with z.open(members[0]) as fh:
-                    reader = MARCReader(fh, utf8_handling='ignore')
-                    for idx, rec in enumerate(reader):
-                        if idx >= len(rowids):
-                            break
-                        rid = rowids[idx]
-                        oclc = extract_oclc_from_record(rec)
-                        if oclc:
-                            ops.append((oclc, rid))
+                mrcs = [n for n in z.namelist() if n.lower().endswith('.mrc')]
+                for member in mrcs:
+                    with z.open(member) as fh:
+                        reader = MARCReader(fh, utf8_handling='ignore')
+                        for rec in reader:
+                            # try to get this record's SuDoc
+                            f086 = rec.get_fields('086')
+                            if not f086 or 'a' not in f086[0]:
+                                continue
+                            call = f086[0]['a'].strip()
+                            rid  = sudoc_to_rowid.get(call)
+                            if not rid:
+                                continue
 
-                        if len(ops) >= BATCH_SIZE:
-                            cur.executemany(UPDATE_SQL, ops)
-                            conn.commit()
-                            total_updated += len(ops)
-                            print(f"  …updated {total_updated}")
-                            ops.clear()
+                            oclc = extract_oclc_from_record(rec)
+                            if oclc:
+                                ops.append((oclc, rid))
+                                # avoid updating twice
+                                del sudoc_to_rowid[call]
+
+                            if len(ops) >= BATCH_SIZE:
+                                cur.executemany(UPDATE_SQL, ops)
+                                conn.commit()
+                                total_updated += len(ops)
+                                print(f"  …updated {total_updated}")
+                                ops.clear()
+                        # end reader
+                    # end with member
+                # end for each .mrc
         except zipfile.BadZipFile:
             print(f"❌ Bad ZIP: {zip_path}", file=sys.stderr)
             continue
 
+        # final batch
         if ops:
             cur.executemany(UPDATE_SQL, ops)
             conn.commit()
@@ -130,6 +119,7 @@ def main(args):
             ops.clear()
 
         print(f"✅ Done {zf}.")
+    # end for each zip
 
     conn.close()
     print(f"🎉 Finished! Total rows updated: {total_updated}")
@@ -137,11 +127,11 @@ def main(args):
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser(__doc__)
-    p.add_argument('--repo', help='Record Sets path (override default)')
+    p.add_argument('--repo', help='Record_Sets path override')
     p.add_argument(
         '--db',
         default=os.path.abspath(
-            os.path.join(os.path.dirname(__file__), os.pardir, 'cgp_sudoc_index.db')
+          os.path.join(os.path.dirname(__file__), os.pardir, 'cgp_sudoc_index.db')
         ),
         help='Path to cgp_sudoc_index.db'
     )

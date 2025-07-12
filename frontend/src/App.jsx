@@ -38,12 +38,14 @@ export default function App() {
           <Route path="item-search" element={<ItemSearch />} />
           <Route path="analytics-search" element={<AnalyticsSearch />} />
           <Route path="analytics-errors" element={<AnalyticsErrors />} />
-          <Route path="sudoc-editor" element={<SudocEditor />} />
           <Route path="create-items" element={<CreateItems />} />
           <Route path="combined-upload" element={<CombinedUpload />} />
           <Route path="review-needed" element={<ReviewNeeded />} />
-          <Route path="sudoc-records" element={<SudocRecords />} />
           <Route path="documentation" element={<Documentation />} />
+          <Route path="sudoc-records" element={<SudocRecords />} />
+          {/* Editor handles both listing and incoming record_id param */}
+          <Route path="sudoc-editor" element={<SudocEditor />} />
+          <Route path="sudoc-editor/:record_id" element={<SudocEditor />} />
         </Route>
 
         {/* ✅ fallback */}
