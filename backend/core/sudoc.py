@@ -6,44 +6,38 @@ import zipfile
 from typing import List, Optional
 from pymarc import MARCReader, Record
 
-# ── Paths ────────────────────────────────────────────────────────────────────
-
-# Base directory = backend/
 BASE_DIR    = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-
-# Path to your SQLite index (cgp_sudoc_index.db) in backend/
 SQLITE_PATH = os.path.join(BASE_DIR, "cgp_sudoc_index.db")
-
-# Path to the folder containing your .mrc.zip files (place them in backend/Record_sets/)
 RECORDS_DIR = os.path.join(BASE_DIR, "Record_sets")
 
-
-# ── Internal helper ─────────────────────────────────────────────────────────
-
 def _connect():
-    """Open a connection to the SQLite index."""
     return sqlite3.connect(SQLITE_PATH)
 
-
-# ── Public API ───────────────────────────────────────────────────────────────
+# backend/core/sudoc.py
 
 def search_records(
     query: str,
     title: Optional[str] = None,
-    limit: int = 100
+    limit: int = 20,
+    offset: int = 0
 ) -> List[dict]:
     """
-    Return up to `limit` rows whose SuDoc call number contains `query`,
-    and whose title contains `title` if given.
-    Each dict has keys: id, sudoc, title, zip_file.
+    Return up to `limit` rows (with `offset`) whose SuDoc call number contains `query`,
+    and whose title contains `title` if given. Includes the precomputed `oclc` field.
     """
-    sql = "SELECT rowid, sudoc, title, zip_file FROM records WHERE sudoc LIKE ?"
-    args = [f"%{query}%"]
-    if title:
-        sql += " AND title LIKE ?"
-        args.append(f"%{title}%")
-    sql += " LIMIT ?"
-    args.append(limit)
+    sql = """
+    SELECT
+      rowid,
+      sudoc,
+      title,
+      zip_file,
+      oclc
+    FROM records
+    WHERE sudoc LIKE ?
+      AND (? IS NULL OR title LIKE ?)
+    LIMIT ? OFFSET ?
+    """
+    args = [f"%{query}%", title, f"%{title}%", limit, offset]
 
     conn = _connect()
     cur  = conn.cursor()
@@ -52,17 +46,17 @@ def search_records(
     conn.close()
 
     return [
-        {"id": r[0], "sudoc": r[1], "title": r[2], "zip_file": r[3]}
+        {
+          "id":       r[0],
+          "sudoc":    r[1],
+          "title":    r[2],
+          "zip_file": r[3],
+          "oclc":     r[4],
+        }
         for r in rows
     ]
 
-
 def get_marc_by_id(record_id: int) -> Optional[Record]:
-    """
-    Look up the given rowid in the SQLite index, find its ZIP filename,
-    open the .mrc.zip, and return the pymarc.Record whose 086 field
-    exactly matches the stored SuDoc call number.
-    """
     conn = _connect()
     cur  = conn.cursor()
     cur.execute("SELECT sudoc, zip_file FROM records WHERE rowid = ?", (record_id,))
@@ -86,31 +80,21 @@ def get_marc_by_id(record_id: int) -> Optional[Record]:
                         return rec
     return None
 
-
 def get_record_fields(record_id: int) -> List[dict]:
-    """
-    Serialize only DataFields (with indicators and subfields).
-    ControlFields (no indicators) are skipped automatically.
-    Subfields are gathered safely: multiple occurrences are
-    concatenated into a comma-separated string.
-    """
     rec = get_marc_by_id(record_id)
     if not rec:
         return []
 
     out = []
     for field in rec.get_fields():
-        # Skip control fields by testing indicators
         try:
             ind1, ind2 = field.indicators
         except Exception:
             continue
 
-        # Build a mapping of subfield code → value(s)
         subfields_map = {}
         for sf in field.subfields:
-            # each sf is a pymarc.Subfield with .code and .value
-            code = getattr(sf, "code", None)
+            code  = getattr(sf, "code", None)
             value = getattr(sf, "value", None)
             if code is None or value is None:
                 continue
@@ -123,7 +107,6 @@ def get_record_fields(record_id: int) -> List[dict]:
             else:
                 subfields_map[code] = value
 
-        # Flatten lists into comma-separated strings for Pydantic
         for code, val in subfields_map.items():
             if isinstance(val, list):
                 subfields_map[code] = ", ".join(val)
