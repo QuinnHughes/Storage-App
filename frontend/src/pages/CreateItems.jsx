@@ -53,7 +53,7 @@ export default function UploadItems() {
   };
 
   return (
-    <div className="max-w-lg mx-auto space-y-4">
+    <div className="max-w-100% mx-auto space-y-4">
       <h3 className="text-xl font-semibold">Upload Items</h3>
       <input type="file" accept=".xlsx,.xls" onChange={handleFileChange} />
       <button

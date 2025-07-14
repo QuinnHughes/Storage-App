@@ -16,6 +16,7 @@ import ReviewNeeded from "./pages/ReviewNeeded";
 import SudocRecords from "./pages/SudocRecords";
 import Documentation from "./pages/Documentation";
 import SudocEditor from "./pages/SudocEditor";
+import AccessionSlots from "./pages/AccessionSlots"
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
         >
           <Route index element={<QuickStart />} />
           <Route path="empty-slots" element={<EmptySlots />} />
+          <Route path="accession-slots" element={<AccessionSlots />} />
           <Route path="item-search" element={<ItemSearch />} />
           <Route path="analytics-search" element={<AnalyticsSearch />} />
           <Route path="analytics-errors" element={<AnalyticsErrors />} />

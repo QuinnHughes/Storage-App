@@ -68,7 +68,7 @@ export default function CombinedUpload() {
   };
 
   return (
-    <div className="max-w-lg mx-auto space-y-10 p-6 bg-gray-50 rounded-lg shadow">
+    <div className="max-w-100% mx-auto space-y-10 p-6 bg-gray-50 rounded-lg shadow">
       <h2 className="text-3xl font-bold text-center">Combined Upload</h2>
 
       {/* Analytics Upload Section */}

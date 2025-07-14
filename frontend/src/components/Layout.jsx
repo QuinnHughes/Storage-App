@@ -14,12 +14,15 @@ const Layout = () => (
 
       <h3>Searches</h3>
       <ul>
-        <li><Link to="/empty-slots">Empty Slots</Link></li>
         <li><Link to="/item-search">Item Search</Link></li>
         <li><Link to="/analytics-search">Analytics Search</Link></li>
         <li><Link to="/analytics-errors">Analytics Errors</Link></li>
       </ul>
-
+      <h3>Accessioning</h3>
+      <ul>  
+        <li><Link to="/empty-slots">Empty Slots</Link></li>
+          <li><Link to="/accession-slots">Accesion From Slots</Link></li>
+      </ul>
       <h3>Record Editing</h3>
       <ul>
         <li><Link to="/create-items">Item Creator</Link></li>
