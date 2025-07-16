@@ -71,32 +71,37 @@ def create_analytics(db: Session, analytics_in: AnalyticsCreate):
 
 
 def create_analytics_error(db: Session, error_in: AnalyticsErrorCreate):
-    db_err = models.AnalyticsError(
+    """
+    Insert a new AnalyticsError, skipping if an identical record already exists.
+    """
+    stmt = insert(models.AnalyticsError).values(
         barcode=error_in.barcode,
         alternative_call_number=error_in.alternative_call_number,
         title=error_in.title,
         call_number=error_in.call_number,
         status=error_in.status,
         error_reason=error_in.error_reason,
-    )
-    db.add(db_err)
-    db.commit()
-    db.refresh(db_err)
-    return db_err
+    ).on_conflict_do_nothing(
+        constraint="uq_analytics_error_all_fields"
+    ).returning(models.AnalyticsError.id)
 
-
-def create_weeded_item(db: Session, wi: WeededItemCreate) -> models.WeededItem:
-    is_weeded = (wi.scanned_barcode == wi.barcode) if wi.scanned_barcode else False
-    db_obj = models.WeededItem(
-        alternative_call_number=wi.alternative_call_number,
-        barcode=wi.barcode,
-        scanned_barcode=wi.scanned_barcode,
-        is_weeded=is_weeded,
-    )
-    db.add(db_obj)
+    result = db.execute(stmt)
     db.commit()
-    db.refresh(db_obj)
-    return db_obj
+
+    row = result.fetchone()
+    if row:
+        # newly inserted
+        return db.get(models.AnalyticsError, row.id)
+
+    # conflict → fetch existing
+    return db.query(models.AnalyticsError).filter_by(
+        barcode=error_in.barcode,
+        alternative_call_number=error_in.alternative_call_number,
+        title=error_in.title,
+        call_number=error_in.call_number,
+        status=error_in.status,
+        error_reason=error_in.error_reason,
+    ).first()
 
 
 def get_weeded_items(db: Session, *, skip: int = 0, limit: int = 100):
