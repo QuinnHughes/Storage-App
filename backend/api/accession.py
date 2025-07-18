@@ -12,11 +12,7 @@ from schemas.emptyslots import EmptySlotDetail
 from db.models import Item
 from core.auth import require_book_worm
 
-router = APIRouter(
-    prefix="/api/accession",
-    tags=["Accession"],
-    dependencies=[Depends(require_book_worm)],
-)
+router = APIRouter()
 
 @router.get("/empty-slots", response_model=List[str])
 def get_empty_slots(

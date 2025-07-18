@@ -20,14 +20,14 @@ export default function AccessionSlots() {
       const headers = getAuthHeaders();
       let data;
       if (mode === "slots") {
-        const res = await fetch(`/api/accession/api/accession/empty-slots?limit=${count}`, { headers, credentials: "include" });
+        const res = await fetch(`/api/accession/empty-slots?limit=${count}`, { headers, credentials: "include" });
         if (res.status === 401) throw new Error("Session expired – please log in again.");
         if (!res.ok) throw new Error(`Error ${res.status}: ${res.statusText}`);
         data = await res.json();
         setPairs(data.map(acn => ({ barcode: "", alternative_call_number: acn })));
       } else {
         // shelves mode
-        const res = await fetch(`/api/accession/api/accession/empty-shelves?limit=${count}`, { headers, credentials: "include" });
+        const res = await fetch(`/api/accession/empty-shelves?limit=${count}`, { headers, credentials: "include" });
         if (res.status === 401) throw new Error("Session expired – please log in again.");
         if (!res.ok) throw new Error(`Error ${res.status}: ${res.statusText}`);
         const shelves = await res.json();
@@ -70,7 +70,7 @@ export default function AccessionSlots() {
     setError("");
     try {
       const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
-      const res = await fetch(`/api/accession/api/accession/labels`, {
+      const res = await fetch(`/api/accession/labels`, {
         method: "POST",
         headers,
         credentials: "include",

@@ -9,7 +9,7 @@ from db                     import crud
 from core.auth              import require_cataloger
 from schemas.weeded_item    import WeededItemCreate, WeededItem
 
-router = APIRouter(prefix="/weed", tags=["Weeded Items"])
+router = APIRouter()
 
 @router.post("/upload", response_model=list[WeededItem])
 def upload_weed_list(

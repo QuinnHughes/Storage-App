@@ -9,7 +9,7 @@ from db.crud import (get_users, get_user_by_id, create_user, update_user, delete
 from schemas.user import UserCreate, UserRead, UserUpdate
 from core.auth import require_admin
 
-router = APIRouter(prefix="/users", tags=["Users"], dependencies=[Depends(require_admin)])
+router = APIRouter()
 
 @router.get("", response_model=List[UserRead])
 def list_users(db: Session = Depends(get_db)):

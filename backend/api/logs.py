@@ -7,7 +7,7 @@ from db.models import UserLog
 from schemas.user_log import UserLogSchema
 from core.auth import require_admin
 
-router = APIRouter(prefix="/logs", tags=["Logs"])
+router = APIRouter()
 
 @router.get("", response_model=List[UserLogSchema])
 def read_logs(

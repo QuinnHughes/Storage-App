@@ -1,6 +1,6 @@
 # backend/db/models.py
 
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import datetime
@@ -14,38 +14,51 @@ class Item(Base):
     alternative_call_number = Column(String, index=True, nullable=False)
 
     # parsed from alternative_call_number
-    location   = Column(String, index=True, nullable=True)  # e.g. "S"
-    floor      = Column(String, index=True, nullable=True)  # e.g. "1"
-    range_code = Column(String, index=True, nullable=True)  # e.g. "01B"
-    ladder     = Column(String, nullable=True)              # e.g. "03"
-    shelf      = Column(String, nullable=True)              # e.g. "04"
-    position   = Column(String, nullable=True)              # e.g. "005"
+    location   = Column(String, index=True, nullable=True)
+    floor      = Column(String, index=True, nullable=True)
+    range_code = Column(String, index=True, nullable=True)
+    ladder     = Column(String, nullable=True)
+    shelf      = Column(String, nullable=True)
+    position   = Column(String, nullable=True)
 
 
 class Analytics(Base):
     __tablename__ = "analytics"
 
-    id                          = Column(Integer, primary_key=True, index=True)
-    barcode                     = Column(String, index=True, nullable=False)   # matches Item.barcode
-    alternative_call_number     = Column(String, index=True, nullable=True)    # matches Item.alternative_call_number
-    title                       = Column(String, nullable=True)
-    location_code               = Column(String, nullable=True)               # from "Location Code"
-    item_policy                 = Column(String, nullable=True)               # from "Item Policy"
-    call_number                 = Column(String, nullable=True)               # from "Permanent Call Number"
-    description                 = Column(String, nullable=True)               # from "Description"
-    status                      = Column(String, nullable=True)               # from "Lifecycle"
+    id                      = Column(Integer, primary_key=True, index=True)
+    barcode                 = Column(String, index=True, nullable=False)
+    alternative_call_number = Column(String, index=True, nullable=True)
+    title                   = Column(String, nullable=True)
+    location_code           = Column(String, nullable=True)
+    item_policy             = Column(String, nullable=True)
+    call_number             = Column(String, nullable=True)
+    description             = Column(String, nullable=True)
+    status                  = Column(String, nullable=True)
+
 
 
 class AnalyticsError(Base):
     __tablename__ = "analytics_errors"
+    __table_args__ = (
+        UniqueConstraint(
+            'barcode',
+            'alternative_call_number',
+            'title',
+            'call_number',
+            'status',
+            'error_reason',
+            name='uq_analytics_error_all_fields'
+        ),
+    )
 
-    id                          = Column(Integer, primary_key=True, index=True)
-    barcode                     = Column(String, index=True, nullable=False)
-    alternative_call_number     = Column(String, index=True, nullable=True)
-    title                       = Column(String, nullable=True)
-    call_number                 = Column(String, nullable=True)
-    status                      = Column(String, nullable=True)
-    error_reason                = Column(String, nullable=False)
+    id                      = Column(Integer, primary_key=True, index=True)
+    barcode                 = Column(String, index=True, nullable=False)
+    alternative_call_number = Column(String, index=True, nullable=True)
+    title                   = Column(String, nullable=True)
+    call_number             = Column(String, nullable=True)
+    status                  = Column(String, nullable=True)
+    error_reason            = Column(String, nullable=False)
+
 
 class WeededItem(Base):
     __tablename__ = "weeded_items"
@@ -56,6 +69,7 @@ class WeededItem(Base):
     is_weeded               = Column(Boolean, default=False, nullable=False)
     created_at              = Column(DateTime(timezone=True), server_default=func.now())
 
+
 class User(Base):
     __tablename__ = "users"
 
@@ -63,6 +77,7 @@ class User(Base):
     username        = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     role            = Column(String, nullable=False)
+
 
 class UserLog(Base):
     __tablename__ = "user_logs"
@@ -75,8 +90,6 @@ class UserLog(Base):
     detail      = Column(String, nullable=True)
     timestamp   = Column(DateTime, default=datetime.datetime.utcnow)
 
-    # optional back‐ref so you can do user.logs
     user = relationship("User", back_populates="logs")
 
-# And on your User model, add this relationship:
 User.logs = relationship("UserLog", back_populates="user", cascade="all, delete-orphan")

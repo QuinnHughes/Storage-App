@@ -1,3 +1,4 @@
+# backend/api/upload.py
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
@@ -10,6 +11,7 @@ from schemas.analytics import AnalyticsCreate, AnalyticsErrorCreate, AnalyticsRe
 from db.session import get_db
 
 router = APIRouter()
+
 
 @router.post("/item", response_model=ItemRead)
 def create_item_endpoint(item_in: ItemCreate, db: Session = Depends(get_db)):
@@ -28,11 +30,9 @@ async def upload_items_file(file: UploadFile = File(...), db: Session = Depends(
     contents = await file.read()
 
     try:
-        if filename.endswith(".xlsx"):
-            df = pd.read_excel(BytesIO(contents), engine="openpyxl")
-        else:
-            import xlrd
-            df = pd.read_excel(BytesIO(contents), engine="xlrd")
+        # Use openpyxl for .xlsx; default engine for .xls
+        engine = "openpyxl" if filename.endswith(".xlsx") else None
+        df = pd.read_excel(BytesIO(contents), engine=engine)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Unable to read Excel file: {e}")
 
@@ -92,6 +92,7 @@ async def upload_items_file(file: UploadFile = File(...), db: Session = Depends(
                 crud.create_item(db, item_in)
                 inserted += 1
             except Exception as e:
+                db.rollback()
                 errors.append({"row": idx + 2, "barcode": barcode, "error": str(e)})
 
     return {
@@ -112,11 +113,9 @@ async def upload_analytics_file(file: UploadFile = File(...), db: Session = Depe
     contents = await file.read()
 
     try:
-        if filename.endswith(".xlsx"):
-            df = pd.read_excel(BytesIO(contents), engine="openpyxl")
-        else:
-            import xlrd
-            df = pd.read_excel(BytesIO(contents), engine="xlrd")
+        # Use openpyxl for .xlsx; default engine for .xls
+        engine = "openpyxl" if filename.endswith(".xlsx") else None
+        df = pd.read_excel(BytesIO(contents), engine=engine)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Unable to read Excel file: {e}")
 
@@ -184,6 +183,7 @@ async def upload_analytics_file(file: UploadFile = File(...), db: Session = Depe
                     crud.create_analytics(db, analytics_in)
                     inserted += 1
                 except Exception as e:
+                    db.rollback()
                     errors.append({"row": idx + 2, "barcode": barcode, "error": str(e)})
         else:
             err_in = AnalyticsErrorCreate(
@@ -198,6 +198,7 @@ async def upload_analytics_file(file: UploadFile = File(...), db: Session = Depe
                 crud.create_analytics_error(db, err_in)
                 error_inserted += 1
             except Exception as e:
+                db.rollback()
                 errors.append({"row": idx + 2, "barcode": barcode, "error": str(e)})
 
     return {

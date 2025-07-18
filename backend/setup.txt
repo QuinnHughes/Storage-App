@@ -1,0 +1,126 @@
+//Use this to setup empty_slot_details and trust me don't every try to edit or optimize
+//you are not that guy pal trust me
+
+CREATE OR REPLACE VIEW empty_slot_details AS
+WITH parsed AS (
+  SELECT
+    floor,
+    range_code,
+    ladder,
+    CAST(shelf AS INTEGER) AS shelf,
+    CAST(position AS INTEGER) AS pos,
+    alternative_call_number
+  FROM items
+),
+range_max_shelf AS (
+  SELECT range_code, MAX(shelf) AS shelf
+  FROM parsed
+  GROUP BY range_code
+),
+all_shelves AS (
+  SELECT DISTINCT
+    p.floor,
+    p.range_code,
+    p.ladder,
+    generate_series(1, rms.shelf) AS shelf
+  FROM parsed p
+  JOIN range_max_shelf rms ON rms.range_code = p.range_code
+),
+empty_shelves AS (
+  SELECT
+    a.floor,
+    a.range_code AS "range",
+    a.ladder,
+    a.shelf,
+    NULL::TEXT AS empty_position,
+    'shelf' AS hole_type
+  FROM all_shelves a
+  LEFT JOIN parsed p
+    ON p.floor = a.floor
+   AND p.range_code = a.range_code
+   AND p.ladder = a.ladder
+   AND p.shelf = a.shelf
+  WHERE p.shelf IS NULL
+),
+max_pos AS (
+  SELECT floor, range_code, ladder, shelf, MAX(pos) AS pos
+  FROM parsed
+  GROUP BY floor, range_code, ladder, shelf
+),
+all_slots AS (
+  SELECT
+    m.floor,
+    m.range_code,
+    m.ladder,
+    m.shelf,
+    generate_series(1, m.pos) AS pos
+  FROM max_pos m
+),
+empty_slots AS (
+  SELECT
+    a.floor,
+    a.range_code AS "range",
+    a.ladder,
+    a.shelf,
+    LPAD(a.pos::TEXT, 3, '0') AS empty_position,
+    'slot' AS hole_type
+  FROM all_slots a
+  LEFT JOIN parsed p
+    ON p.floor = a.floor
+   AND p.range_code = a.range_code
+   AND p.ladder = a.ladder
+   AND p.shelf = a.shelf
+   AND p.pos = a.pos
+  WHERE p.pos IS NULL
+),
+destroyed_slots AS (
+  SELECT
+    split_part(w.alternative_call_number, '-', 2) AS floor,
+    split_part(w.alternative_call_number, '-', 3) AS "range",
+    split_part(w.alternative_call_number, '-', 4) AS ladder,
+    CAST(split_part(w.alternative_call_number, '-', 5) AS INTEGER) AS shelf,
+    LPAD(split_part(w.alternative_call_number, '-', 6), 3, '0') AS empty_position,
+    'slot' AS hole_type
+  FROM weeded_items w
+  WHERE w.is_weeded
+    AND split_part(w.alternative_call_number, '-', 5) ~ '^[0-9]+$'
+    AND split_part(w.alternative_call_number, '-', 6) ~ '^[0-9]+$'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM parsed p
+      WHERE p.alternative_call_number = w.alternative_call_number
+    )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM empty_shelves es
+      WHERE es.floor = split_part(w.alternative_call_number, '-', 2)
+        AND es."range" = split_part(w.alternative_call_number, '-', 3)
+        AND es.ladder = split_part(w.alternative_call_number, '-', 4)
+        AND es.shelf = CAST(split_part(w.alternative_call_number, '-', 5) AS INTEGER)
+    )
+    AND (
+      NOT EXISTS (
+        SELECT 1
+        FROM max_pos mp
+        WHERE mp.floor = split_part(w.alternative_call_number, '-', 2)
+          AND mp.range_code = split_part(w.alternative_call_number, '-', 3)
+          AND mp.ladder = split_part(w.alternative_call_number, '-', 4)
+          AND mp.shelf = CAST(split_part(w.alternative_call_number, '-', 5) AS INTEGER)
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM max_pos mp
+        WHERE mp.floor = split_part(w.alternative_call_number, '-', 2)
+          AND mp.range_code = split_part(w.alternative_call_number, '-', 3)
+          AND mp.ladder = split_part(w.alternative_call_number, '-', 4)
+          AND mp.shelf = CAST(split_part(w.alternative_call_number, '-', 5) AS INTEGER)
+          AND mp.pos >= CAST(split_part(w.alternative_call_number, '-', 6) AS INTEGER)
+      )
+    )
+)
+SELECT * FROM empty_shelves
+UNION ALL
+SELECT * FROM empty_slots
+UNION ALL
+SELECT * FROM destroyed_slots
+ORDER BY floor, "range", ladder, shelf, hole_type, empty_position;

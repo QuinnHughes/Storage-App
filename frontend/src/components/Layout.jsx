@@ -6,24 +6,24 @@ const Layout = () => (
     <nav className="sidebar">
       <h2>Storage App</h2>
 
-      <h3>Getting Started</h3>
+      <h3><b>Getting Started</b></h3>
       <ul>
         <li><Link to="/login"> login</Link></li>
         <li><Link to="/">General Overview</Link></li>
       </ul>
 
-      <h3>Searches</h3>
+      <h3><b>Searches</b></h3>
       <ul>
         <li><Link to="/item-search">Item Search</Link></li>
         <li><Link to="/analytics-search">Analytics Search</Link></li>
         <li><Link to="/analytics-errors">Analytics Errors</Link></li>
       </ul>
-      <h3>Accessioning</h3>
+      <h3><b>Accessioning</b></h3>
       <ul>  
         <li><Link to="/empty-slots">Empty Slots</Link></li>
           <li><Link to="/accession-slots">Accesion From Slots</Link></li>
       </ul>
-      <h3>Record Editing</h3>
+      <h3><b>Record Editing</b></h3>
       <ul>
         <li><Link to="/create-items">Item Creator</Link></li>
         <li><Link to="/combined-upload">Upload Files</Link></li>
@@ -32,9 +32,10 @@ const Layout = () => (
         <li><Link to="/sudoc-editor">Sudoc Editor</Link></li>
       </ul>
 
-      <h3>Admin Section</h3>
+      <h3><b>Admin Tools</b></h3>
       <ul>
         <li><Link to="/documentation">Documentation</Link></li>
+        <li><Link to ="/user-managment">User Managment</Link></li>
       </ul>
     </nav>
 

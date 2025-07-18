@@ -17,6 +17,7 @@ import SudocRecords from "./pages/SudocRecords";
 import Documentation from "./pages/Documentation";
 import SudocEditor from "./pages/SudocEditor";
 import AccessionSlots from "./pages/AccessionSlots"
+import UserManagment from "./pages/UserManagment"
 
 export default function App() {
   return (
@@ -43,7 +44,8 @@ export default function App() {
           <Route path="create-items" element={<CreateItems />} />
           <Route path="combined-upload" element={<CombinedUpload />} />
           <Route path="review-needed" element={<ReviewNeeded />} />
-          <Route path="documentation" element={<Documentation />} />
+          <Route path="documentation" element={<Documentation />} /> 
+          <Route path="user-managment" element={<UserManagment />} />
           <Route path="sudoc-records" element={<SudocRecords />} />
           {/* Editor handles both listing and incoming record_id param */}
           <Route path="sudoc-editor" element={<SudocEditor />} />

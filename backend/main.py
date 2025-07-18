@@ -18,7 +18,7 @@ from api.analytics_errors import router as analytics_errors_router
 from api.sudoc import router as sudoc_router
 from api.auth import router as auth_router
 from api.logs import router as logs_router
-from api.accesion import router as accession_router
+from api.accession import router as accession_router
 from api.weed import router as weed_router
 from api.users import router as users_router
 
@@ -67,7 +67,7 @@ app.include_router(
 )
 app.include_router(
     analytics_router,
-    prefix="/catalog",
+    prefix="/analytics",
     tags=["Analytics"],
     dependencies=[Depends(require_viewer)],
 )
