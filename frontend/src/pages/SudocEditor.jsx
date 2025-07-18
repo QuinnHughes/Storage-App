@@ -175,8 +175,7 @@ useEffect(() => {
             <section className="mt-6">
               <h3 className="font-semibold mb-2">Field-level Editing</h3>
               <p className="text-gray-600">
-                Form controls for editing each field will go here when you’re
-                ready to wire up your save endpoint.
+                Not quite ready so just use your imagination here.
               </p>
             </section>
           </>

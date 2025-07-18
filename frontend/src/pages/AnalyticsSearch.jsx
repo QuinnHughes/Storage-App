@@ -53,7 +53,7 @@ export default function AnalyticsSearch() {
     async function fetchFilters() {
       try {
         const token = localStorage.getItem("token");
-        const resp = await fetch("/catalog/search/analytics/filters", {
+        const resp = await fetch("/analytics/search/analytics/filters", {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!resp.ok) throw new Error(`Status ${resp.status}`);
@@ -89,7 +89,7 @@ export default function AnalyticsSearch() {
 
     try {
       const token = localStorage.getItem("token");
-      const resp = await fetch("/catalog/search/analytics" + qs, {
+      const resp = await fetch("/analytics/search/analytics" + qs, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (resp.ok) {

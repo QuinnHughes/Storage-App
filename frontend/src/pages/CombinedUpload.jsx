@@ -33,7 +33,7 @@ export default function CombinedUpload() {
       endpoint = "/upload/items-file";
     } else if (type === "weed") {
       file = weedFile;
-      endpoint = "/weed/weed/upload";
+      endpoint = "/weed/upload";
     }
 
     if (!file) {
