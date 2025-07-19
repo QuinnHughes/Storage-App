@@ -11,12 +11,12 @@ from core.auth import require_admin
 
 router = APIRouter()
 
-@router.get("", response_model=List[UserRead])
+@router.get("/list", response_model=List[UserRead])
 def list_users(db: Session = Depends(get_db)):
     """List all users (admin only)"""
     return get_users(db)
 
-@router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+@router.post("/create", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def add_user(data: UserCreate, db: Session = Depends(get_db)):
     """Create a new user"""
     existing = get_user_by_username(db, data.username)
@@ -24,7 +24,7 @@ def add_user(data: UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Username already taken")
     return create_user(db, data.username, data.password, data.role)
 
-@router.get("/{user_id}", response_model=UserRead)
+@router.get("/read/{user_id}", response_model=UserRead)
 def read_user(user_id: int, db: Session = Depends(get_db)):
     """Get a user by ID"""
     user = get_user_by_id(db, user_id)
@@ -32,7 +32,7 @@ def read_user(user_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
-@router.patch("/{user_id}", response_model=UserRead)
+@router.patch("/modify/{user_id}", response_model=UserRead)
 def modify_user(
     user_id: int,
     data: UserUpdate,
@@ -44,7 +44,7 @@ def modify_user(
         raise HTTPException(status_code=404, detail="User not found")
     return update_user(db, user, data)
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/remove/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_user(user_id: int, db: Session = Depends(get_db)):
     """Delete a user account"""
     user = get_user_by_id(db, user_id)

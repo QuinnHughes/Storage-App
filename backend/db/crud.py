@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
-from typing import List
-
+from typing import List, Optional 
+from sqlalchemy import or_
 from . import models
 from .models import User
 from schemas.item import ItemCreate
@@ -51,6 +51,44 @@ def create_item(db: Session, item_in: ItemCreate):
     db.refresh(db_item)
     return db_item
 
+def search_items(
+    db: Session,
+    q: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100
+):
+    query = db.query(models.Item)
+    if q:
+        if q.isdigit():
+            query = query.filter(models.Item.id == int(q))
+        else:
+            term = f"%{q}%"
+            query = query.filter(or_(
+                models.Item.barcode.ilike(term),
+                models.Item.alternative_call_number.ilike(term),
+            ))
+    return query.offset(skip).limit(limit).all()
+
+def get_item(db: Session, item_id: int):
+    return db.query(models.Item).filter(models.Item.id == item_id).first()
+
+def update_item(db: Session, item_id: int, **data):
+    item = get_item(db, item_id)
+    if not item:
+        return None
+    for key, val in data.items():
+        setattr(item, key, val)
+    db.commit()
+    db.refresh(item)
+    return item
+
+def delete_item(db: Session, item_id: int):
+    item = get_item(db, item_id)
+    if not item:
+        return None
+    db.delete(item)
+    db.commit()
+    return item
 
 def list_items(db: Session, skip: int = 0, limit: int = 100):
     return db.query(models.Item).offset(skip).limit(limit).all()
@@ -103,6 +141,90 @@ def create_analytics_error(db: Session, error_in: AnalyticsErrorCreate):
         error_reason=error_in.error_reason,
     ).first()
 
+def search_analytics_errors(
+    db: Session,
+    q: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100
+):
+    query = db.query(models.AnalyticsError)
+    if q:
+        if q.isdigit():
+            query = query.filter(models.AnalyticsError.id == int(q))
+        else:
+            term = f"%{q}%"
+            query = query.filter(or_(
+                models.AnalyticsError.barcode.ilike(term),
+                models.AnalyticsError.alternative_call_number.ilike(term),
+                models.AnalyticsError.title.ilike(term),
+                models.AnalyticsError.call_number.ilike(term),
+                models.AnalyticsError.status.ilike(term),
+                models.AnalyticsError.error_reason.ilike(term),
+            ))
+    return query.offset(skip).limit(limit).all()
+
+def get_analytics_error(db: Session, error_id: int):
+    return db.query(models.AnalyticsError).filter(models.AnalyticsError.id == error_id).first()
+
+def update_analytics_error(db: Session, error_id: int, **data):
+    obj = get_analytics_error(db, error_id)
+    if not obj:
+        return None
+    for key, val in data.items():
+        setattr(obj, key, val)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+def delete_analytics_error(db: Session, error_id: int):
+    obj = get_analytics_error(db, error_id)
+    if not obj:
+        return None
+    db.delete(obj)
+    db.commit()
+    return obj
+
+def search_analytics(
+    db: Session,
+    q: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100
+):
+    query = db.query(models.Analytics)
+    if q:
+        if q.isdigit():
+            query = query.filter(models.Analytics.id == int(q))
+        else:
+            term = f"%{q}%"
+            query = query.filter(or_(
+                models.Analytics.barcode.ilike(term),
+                models.Analytics.alternative_call_number.ilike(term),
+                models.Analytics.title.ilike(term),
+                models.Analytics.call_number.ilike(term),
+                models.Analytics.status.ilike(term),
+            ))
+    return query.offset(skip).limit(limit).all()
+
+def get_analytics(db: Session, analytics_id: int):
+    return db.query(models.Analytics).filter(models.Analytics.id == analytics_id).first()
+
+def update_analytics(db: Session, analytics_id: int, **data):
+    obj = get_analytics(db, analytics_id)
+    if not obj:
+        return None
+    for key, val in data.items():
+        setattr(obj, key, val)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+def delete_analytics(db: Session, analytics_id: int):
+    obj = get_analytics(db, analytics_id)
+    if not obj:
+        return None
+    db.delete(obj)
+    db.commit()
+    return obj
 
 def get_weeded_items(db: Session, *, skip: int = 0, limit: int = 100):
     return db.query(models.WeededItem).offset(skip).limit(limit).all()
@@ -159,6 +281,59 @@ def bulk_create_weeded_items(
         )
         for row in inserted
     ]
+
+def search_weeded_items(
+    db: Session,
+    q: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100
+):
+    query = db.query(models.WeededItem)
+    if q:
+        if q.isdigit():
+            query = query.filter(models.WeededItem.id == int(q))
+        else:
+            term = f"%{q}%"
+            query = query.filter(or_(
+                models.WeededItem.barcode.ilike(term),
+                models.WeededItem.alternative_call_number.ilike(term),
+                models.WeededItem.scanned_barcode.ilike(term),
+            ))
+    return query.offset(skip).limit(limit).all()
+
+def get_weeded_item(db: Session, weeded_id: int):
+    return db.query(models.WeededItem).filter(models.WeededItem.id == weeded_id).first()
+
+def create_weeded_item(db: Session, weeded_in: WeededItemCreate):
+    wi = models.WeededItem(
+        alternative_call_number=weeded_in.alternative_call_number,
+        barcode=weeded_in.barcode,
+        scanned_barcode=weeded_in.scanned_barcode,
+        is_weeded=(weeded_in.scanned_barcode == weeded_in.barcode)
+                 if weeded_in.scanned_barcode else False,
+    )
+    db.add(wi)
+    db.commit()
+    db.refresh(wi)
+    return wi
+
+def update_weeded_item(db: Session, weeded_id: int, **data):
+    obj = get_weeded_item(db, weeded_id)
+    if not obj:
+        return None
+    for key, val in data.items():
+        setattr(obj, key, val)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+def delete_weeded_item(db: Session, weeded_id: int):
+    obj = get_weeded_item(db, weeded_id)
+    if not obj:
+        return None
+    db.delete(obj)
+    db.commit()
+    return obj
 
 def get_users(db: Session) -> List[User]:
     """Return all users"""
