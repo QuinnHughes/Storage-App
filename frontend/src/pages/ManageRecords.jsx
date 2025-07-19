@@ -1,247 +1,207 @@
 import React, { useState, useEffect } from 'react';
 
+const tableConfigs = {
+  items: {
+    fields: [
+      { name: 'id', label: 'ID', type: 'text' },
+      { name: 'barcode', label: 'Barcode', type: 'text' },
+      { name: 'alternative_call_number', label: 'Alt Call#', type: 'text' },
+      { name: 'location', label: 'Location', type: 'select', distinct: true },
+      { name: 'floor', label: 'Floor', type: 'select', distinct: true },
+      { name: 'range_code', label: 'Range', type: 'select', distinct: true },
+      { name: 'ladder', label: 'Ladder', type: 'select', distinct: true },
+      { name: 'shelf', label: 'Shelf', type: 'select', distinct: true },
+      { name: 'position', label: 'Position', type: 'select', distinct: true },
+    ],
+  },
+  analytics: {
+    fields: [
+      { name: 'id', label: 'ID', type: 'text' },
+      { name: 'barcode', label: 'Barcode', type: 'text' },
+      { name: 'alternative_call_number', label: 'Alt Call#', type: 'text' },
+      { name: 'title', label: 'Title', type: 'text' },
+      { name: 'call_number', label: 'Call No', type: 'text' },
+      { name: 'location_code', label: 'Location Code', type: 'select', distinct: true },
+      { name: 'item_policy', label: 'Policy', type: 'select', distinct: true },
+      { name: 'status', label: 'Status', type: 'select', distinct: true },
+    ],
+  },
+  weeded_items: {
+    fields: [
+      { name: 'id', label: 'ID', type: 'text' },
+      { name: 'barcode', label: 'Barcode', type: 'text' },
+      { name: 'alternative_call_number', label: 'Alt Call#', type: 'text' },
+      { name: 'scanned_barcode', label: 'Scanned Barcode', type: 'text' },
+      { name: 'is_weeded', label: 'Is Weeded', type: 'checkbox' },
+    ],
+  },
+  analytics_errors: {
+    fields: [
+      { name: 'id', label: 'ID', type: 'text' },
+      { name: 'barcode', label: 'Barcode', type: 'text' },
+      { name: 'alternative_call_number', label: 'Alt Call#', type: 'text' },
+      { name: 'title', label: 'Title', type: 'text' },
+      { name: 'call_number', label: 'Call No', type: 'text' },
+      { name: 'status', label: 'Status', type: 'select', distinct: true },
+      { name: 'error_reason', label: 'Error Reason', type: 'select', distinct: true },
+    ],
+  },
+};
+
 export default function ManageRecords() {
   const [table, setTable] = useState('items');
-  const [searchParams, setSearchParams] = useState({});
+  const [fields, setFields] = useState(tableConfigs.items.fields);
+  const [params, setParams] = useState({});
   const [options, setOptions] = useState({});
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [editingId, setEditingId] = useState(null);
-  const [formData, setFormData] = useState({});
 
-  const fieldsByTable = {
-    items: [
-      { name: 'id', label: 'ID', type: 'text' },
-      { name: 'barcode', label: 'Barcode', type: 'text' },
-      { name: 'alternative_call_number', label: 'Alt Call #', type: 'text' },
-      { name: 'location', label: 'Location', type: 'text' },
-      { name: 'floor', label: 'Floor', type: 'text' },
-      { name: 'range_code', label: 'Range Code', type: 'text' },
-    ],
-    analytics: [
-      { name: 'id', label: 'ID', type: 'text' },
-      { name: 'barcode', label: 'Barcode', type: 'text' },
-      { name: 'alternative_call_number', label: 'Alt Call #', type: 'text' },
-      { name: 'title', label: 'Title', type: 'text' },
-      { name: 'call_number', label: 'Call Number', type: 'text' },
-      { name: 'item_policy', label: 'Policy', type: 'text' },
-      { name: 'location_code', label: 'Location Code', type: 'text' },
-      { name: 'status', label: 'Status', type: 'text' },
-    ],
-    weeded_items: [
-      { name: 'id', label: 'ID', type: 'text' },
-      { name: 'barcode', label: 'Barcode', type: 'text' },
-      { name: 'alternative_call_number', label: 'Alt Call #', type: 'text' },
-      { name: 'scanned_barcode', label: 'Scanned Barcode', type: 'text' },
-      { name: 'is_weeded', label: 'Is Weeded', type: 'checkbox' },
-    ],
-    analytics_errors: [
-      { name: 'id', label: 'ID', type: 'text' },
-      { name: 'barcode', label: 'Barcode', type: 'text' },
-      { name: 'alternative_call_number', label: 'Alt Call #', type: 'text' },
-      { name: 'title', label: 'Title', type: 'text' },
-      { name: 'call_number', label: 'Call Number', type: 'text' },
-      { name: 'status', label: 'Status', type: 'text' },
-      { name: 'error_reason', label: 'Error Reason', type: 'text' },
-    ],
-  };
-
-  // Reset search params and load distinct dropdown options on table change
   useEffect(() => {
-    const defaults = {};
-    fieldsByTable[table].forEach(field => {
-      defaults[field.name] = field.type === 'checkbox' ? false : '';
-    });
-    setSearchParams(defaults);
+    const cfg = tableConfigs[table];
+    setFields(cfg.fields);
+    const initParams = {};
+    cfg.fields.forEach(f => initParams[f.name] = f.type === 'checkbox' ? false : '');
+    setParams(initParams);
     setResults([]);
     setError('');
-    setEditingId(null);
-    setFormData({});
 
-    // Fetch distinct values for dropdowns
-    const fetchOptions = async () => {
+    const loadDistinct = async () => {
       const token = localStorage.getItem('token');
       const newOpts = {};
-      for (let field of fieldsByTable[table]) {
-        if (field.name === 'id' || field.type === 'text') {
+      await Promise.all(cfg.fields.map(async f => {
+        if (f.distinct) {
           try {
-            const resp = await fetch(
-              `/record-management/${table}/distinct/${field.name}`,
+            const res = await fetch(
+              `/record-management/${table}/distinct/${f.name}`,
               { headers: { Authorization: `Bearer ${token}` } }
             );
-            if (resp.ok) newOpts[field.name] = await resp.json();
-          } catch (e) {
-            console.error(`Failed to load options for ${field.name}`, e);
+            newOpts[f.name] = res.ok ? await res.json() : [];
+          } catch {
+            newOpts[f.name] = [];
           }
         }
-      }
+      }));
       setOptions(newOpts);
     };
-    fetchOptions();
+    loadDistinct();
   }, [table]);
 
-  // Handle search parameter changes
-  const handleParamChange = name => e => {
-    const val = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
-    setSearchParams(prev => ({ ...prev, [name]: val }));
+  const handleChange = (name, type) => e => {
+    const val = type === 'checkbox' ? e.target.checked : e.target.value;
+    setParams(p => ({ ...p, [name]: val }));
   };
 
-  // Perform search
-  const handleSearch = async () => {
+  const doSearch = async e => {
+    e.preventDefault();
     setLoading(true);
     setError('');
-    setResults([]);
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== '' && v !== false) qs.append(k, v);
+    });
     try {
       const token = localStorage.getItem('token');
-      const params = new URLSearchParams();
-      if (searchParams.id) {
-        params.append('id', searchParams.id);
-      } else {
-        fieldsByTable[table].forEach(field => {
-          if (field.name === 'id') return;
-          const val = searchParams[field.name];
-          if (field.type === 'checkbox') {
-            params.append(field.name, val);
-          } else if (val.trim()) {
-            params.append(field.name, val);
-          }
-        });
-      }
-      const qs = params.toString();
-      const url = `/record-management/${table}/search${qs ? `?${qs}` : ''}`;
-      const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      if (!resp.ok) {
-        const body = await resp.json();
-        throw new Error(body.detail || `Error ${resp.status}`);
-      }
-      const data = await resp.json();
-      setResults(Array.isArray(data) ? data : [data]);
-    } catch (e) {
-      console.error(e);
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Inline edit handlers (unchanged)
-  const startEdit = record => { setEditingId(record.id); setFormData(record); setError(''); };
-  const cancelEdit = () => { setEditingId(null); setFormData({}); };
-  const saveEdit = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const resp = await fetch(
-        `/record-management/${table}/${editingId}`,
-        { method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(formData) }
+      const res = await fetch(
+        `/record-management/${table}/search?${qs.toString()}`,
+        { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (!resp.ok) {
-        const body = await resp.json(); throw new Error(body.detail || `Error ${resp.status}`);
-      }
-      const updated = await resp.json();
-      setResults(prev => prev.map(item => item.id === editingId ? updated : item));
-      setEditingId(null);
-    } catch (e) { console.error(e); setError(e.message); }
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setResults(data);
+    } catch {
+      setError('Error loading records');
+    }
+    setLoading(false);
   };
-  const handleDelete = async id => {
-    if (!window.confirm('Delete this record?')) return;
-    try {
-      const token = localStorage.getItem('token');
-      const resp = await fetch(`/record-management/${table}/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-      if (!resp.ok) throw new Error(`Error ${resp.status}`);
-      setResults(prev => prev.filter(item => item.id !== id));
-    } catch (e) { console.error(e); setError(e.message); }
-  };
-
-  const columns = results.length ? Object.keys(results[0]) : [];
 
   return (
-    <div className="p-6 max-w-full mx-auto">
-      <h1 className="text-2xl font-semibold mb-4">Manage Records</h1>
-
-      {/* Search Filters */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
-        <div>
-          <label className="block mb-1">Table</label>
-          <select value={table} onChange={e => setTable(e.target.value)} className="border p-2 rounded w-full">
-            {Object.keys(fieldsByTable).map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
-          </select>
-        </div>
-
-        {/* Dynamic dropdowns or inputs based on available options */}
-        {fieldsByTable[table].map(field => (
-          <div key={field.name}>
-            <label className="block mb-1">{field.label}</label>
-            {options[field.name] && options[field.name].length > 0 ? (
-              <select value={searchParams[field.name] || ''} onChange={handleParamChange(field.name)} className="border p-2 rounded w-full">
-                <option value="">Any</option>
-                {options[field.name].map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
-            ) : field.type === 'checkbox' ? (
-              <input
-                type="checkbox"
-                checked={!!searchParams[field.name]}
-                onChange={handleParamChange(field.name)}
-                className="rounded"
-              />
-            ) : (
-              <input
-                type="text"
-                value={searchParams[field.name] || ''}
-                onChange={handleParamChange(field.name)}
-                className="border p-2 rounded w-full"
-              />
-            )}
+    <div className="container mx-auto px-4 py-8">
+      <h1 className="text-4xl font-bold text-center text-blue-700 mb-8">Manage Records</h1>
+      <form onSubmit={doSearch} className="bg-white shadow-md rounded px-6 py-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Table</label>
+            <select
+              value={table}
+              onChange={e => setTable(e.target.value)}
+              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {Object.keys(tableConfigs).map(t => (
+                <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
+              ))}
+            </select>
           </div>
-        ))}
-
-        <div className="flex items-end">
-          <button onClick={handleSearch} disabled={loading} className="px-4 py-2 bg-blue-600 text-white rounded w-full">
-            {loading ? 'Searching…' : 'Search'}
+          {fields.map(f => (
+            <div key={f.name}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
+              {f.type === 'checkbox' ? (
+                <input
+                  type="checkbox"
+                  checked={params[f.name]}
+                  onChange={handleChange(f.name, 'checkbox')}
+                  className="form-checkbox h-5 w-5 text-blue-600"
+                />
+              ) : f.type === 'select' ? (
+                <select
+                  value={params[f.name]}
+                  onChange={handleChange(f.name, 'text')}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">All</option>
+                  {(options[f.name] || []).map(opt => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={params[f.name]}
+                  onChange={handleChange(f.name, 'text')}
+                  placeholder={`Search ${f.label}`}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="mt-6 text-right">
+          <button
+            type="submit"
+            disabled={loading}
+            className="inline-flex justify-center py-2 px-6 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            {loading ? 'Searching...' : 'Search'}
           </button>
         </div>
-      </div>
+      </form>
 
-      {error && <div className="text-red-600 mb-4">{error}</div>}
+      {error && <div className="text-red-600 text-center mb-4">{error}</div>}
 
-      {/* Results Table */}
-      {results.length ? (
-        <table className="w-full table-auto border-collapse mb-6">
-          <thead><tr className="bg-gray-100">
-            {columns.map(col => <th key={col} className="border px-2 py-1 text-left">{col}</th>)}
-            <th className="border px-2 py-1">Actions</th>
-          </tr></thead>
-          <tbody>
-            {results.map(rec => (
-              <tr key={rec.id} className="even:bg-gray-50">
-                {columns.map(col => <td key={col} className="border px-2 py-1">
-                  {editingId === rec.id ? (
-                    <input
-                      type="text"
-                      value={formData[col] ?? ''}
-                      onChange={e => setFormData(prev => ({ ...prev, [col]: e.target.value }))}
-                      className="w-full border rounded px-1 py-0.5"
-                    />
-                  ) : String(rec[col] ?? '')}
-                </td>)}
-                <td className="border px-2 py-1 space-x-1">
-                  {editingId === rec.id ? (
-                    <>
-                      <button onClick={saveEdit} className="px-2 py-1 bg-green-600 text-white rounded text-sm">Save</button>
-                      <button onClick={cancelEdit} className="px-2 py-1 bg-gray-300 rounded text-sm">Cancel</button>
-                    </>
-                  ) : (
-                    <>
-                      <button onClick={() => startEdit(rec)} className="px-2 py-1 bg-indigo-600 text-white rounded text-sm">Edit</button>
-                      <button onClick={() => handleDelete(rec.id)} className="px-2 py-1 bg-red-600 text-white rounded text-sm">Delete</button>
-                    </>
-                  )}
-                </td>
+      <div className="overflow-x-auto">
+        <table className="min-w-full bg-white shadow-md rounded-lg overflow-hidden">
+          <thead className="bg-blue-100">
+            <tr>
+              {fields.map(f => (
+                <th key={f.name} className="px-4 py-2 text-left text-sm font-semibold text-blue-700">
+                  {f.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {results.map((row, idx) => (
+              <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                {fields.map(f => (
+                  <td key={f.name} className="px-4 py-2 text-sm text-gray-800">
+                    {String(row[f.name] ?? '')}
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>
         </table>
-      ) : !loading && <div className="text-gray-500">No results to display.</div>}
+      </div>
     </div>
   );
 }

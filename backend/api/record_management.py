@@ -4,19 +4,13 @@ from typing import Any, Dict, Optional, List
 
 import db.models as models
 from core.auth import get_current_user
-from db.crud import (
-    search_items, get_item, create_item, update_item, delete_item,
-    search_analytics, get_analytics, create_analytics, update_analytics, delete_analytics,
-    search_weeded_items, get_weeded_item, create_weeded_item, update_weeded_item, delete_weeded_item,
-    search_analytics_errors, get_analytics_error, create_analytics_error, update_analytics_error, delete_analytics_error,
-)
 from db.session import get_db
 
-router = APIRouter(
-    prefix="/record-management",
-    tags=["record_management"],
-    dependencies=[Depends(get_current_user)]
-)
+router = APIRouter()
+
+# Helper to serialize SQLAlchemy models
+def serialize_model(obj: Any) -> Dict[str, Any]:
+    return {col.name: getattr(obj, col.name) for col in obj.__table__.columns}
 
 @router.get("/{table}/search")
 def search_records(
@@ -27,10 +21,14 @@ def search_records(
     location: Optional[str] = Query(None),
     floor: Optional[str] = Query(None),
     range_code: Optional[str] = Query(None),
+    ladder: Optional[str] = Query(None),
+    shelf: Optional[str] = Query(None),
+    position: Optional[str] = Query(None),
     title: Optional[str] = Query(None),
     call_number: Optional[str] = Query(None),
     item_policy: Optional[str] = Query(None),
     location_code: Optional[str] = Query(None),
+    description: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     scanned_barcode: Optional[str] = Query(None),
     is_weeded: Optional[bool] = Query(None),
@@ -38,114 +36,114 @@ def search_records(
     skip: int = Query(0),
     limit: int = Query(100),
     db: Session = Depends(get_db)
-) -> List[Any]:
-    """
-    Search records by specific fields for each table.
-    """
-    # ----------- ITEMS -----------
-    if table == 'items':
+) -> List[Dict[str, Any]]:
+    """Search each table using direct SQL filters and substring matches"""
+    # Build and execute table-specific queries
+    if table == "items":
+        query = db.query(models.Item)
         if id is not None:
-            item = get_item(db, id)
-            return [item] if item else []
-        results = search_items(db, q=None, skip=skip, limit=limit)
+            query = query.filter(models.Item.id == id)
         if barcode:
-            results = [r for r in results if r.barcode == barcode]
+            query = query.filter(models.Item.barcode.ilike(f"%{barcode}%"))
         if alternative_call_number:
-            results = [r for r in results if r.alternative_call_number == alternative_call_number]
+            query = query.filter(models.Item.alternative_call_number.ilike(f"%{alternative_call_number}%"))
         if location:
-            results = [r for r in results if getattr(r, 'location', None) == location]
+            query = query.filter(models.Item.location.ilike(f"%{location}%"))
         if floor:
-            results = [r for r in results if getattr(r, 'floor', None) == floor]
+            query = query.filter(models.Item.floor == floor)
         if range_code:
-            results = [r for r in results if getattr(r, 'range_code', None) == range_code]
-        return results
+            query = query.filter(models.Item.range_code == range_code)
+        if ladder:
+            query = query.filter(models.Item.ladder == ladder)
+        if shelf:
+            query = query.filter(models.Item.shelf == shelf)
+        if position:
+            query = query.filter(models.Item.position == position)
+        results = query.offset(skip).limit(limit).all()
 
-    # ----------- ANALYTICS -----------
-    if table == 'analytics':
+    elif table == "analytics":
+        query = db.query(models.Analytics)
         if id is not None:
-            analytics = get_analytics(db, id)
-            return [analytics] if analytics else []
-        results = search_analytics(db, q=None, skip=skip, limit=limit)
+            query = query.filter(models.Analytics.id == id)
         if barcode:
-            results = [r for r in results if r.barcode == barcode]
+            query = query.filter(models.Analytics.barcode.ilike(f"%{barcode}%"))
         if alternative_call_number:
-            results = [r for r in results if r.alternative_call_number == alternative_call_number]
+            query = query.filter(models.Analytics.alternative_call_number.ilike(f"%{alternative_call_number}%"))
         if title:
-            results = [r for r in results if r.title and title.lower() in r.title.lower()]
+            query = query.filter(models.Analytics.title.ilike(f"%{title}%"))
         if call_number:
-            results = [r for r in results if r.call_number == call_number]
+            query = query.filter(models.Analytics.call_number.ilike(f"%{call_number}%"))
         if item_policy:
-            results = [r for r in results if r.item_policy == item_policy]
+            query = query.filter(models.Analytics.item_policy == item_policy)
         if location_code:
-            results = [r for r in results if r.location_code == location_code]
+            query = query.filter(models.Analytics.location_code == location_code)
+        if description:
+            query = query.filter(models.Analytics.description.ilike(f"%{description}%"))
         if status:
-            results = [r for r in results if r.status == status]
-        return results
+            query = query.filter(models.Analytics.status == status)
+        results = query.offset(skip).limit(limit).all()
 
-    # ----------- WEEDED ITEMS -----------
-    if table == 'weeded_items':
+    elif table == "weeded_items":
+        query = db.query(models.WeededItem)
         if id is not None:
-            wi = get_weeded_item(db, id)
-            return [wi] if wi else []
-        results = search_weeded_items(db, q=None, skip=skip, limit=limit)
+            query = query.filter(models.WeededItem.id == id)
         if barcode:
-            results = [r for r in results if r.barcode == barcode]
+            query = query.filter(models.WeededItem.barcode.ilike(f"%{barcode}%"))
         if alternative_call_number:
-            results = [r for r in results if r.alternative_call_number == alternative_call_number]
+            query = query.filter(models.WeededItem.alternative_call_number.ilike(f"%{alternative_call_number}%"))
         if scanned_barcode:
-            results = [r for r in results if r.scanned_barcode == scanned_barcode]
+            query = query.filter(models.WeededItem.scanned_barcode.ilike(f"%{scanned_barcode}%"))
         if is_weeded is not None:
-            results = [r for r in results if r.is_weeded == is_weeded]
-        return results
+            query = query.filter(models.WeededItem.is_weeded == is_weeded)
+        results = query.offset(skip).limit(limit).all()
 
-    # ----------- ANALYTICS ERRORS -----------
-    if table == 'analytics_errors':
+    elif table == "analytics_errors":
+        query = db.query(models.AnalyticsError)
         if id is not None:
-            ae = get_analytics_error(db, id)
-            return [ae] if ae else []
-        results = search_analytics_errors(db, q=None, skip=skip, limit=limit)
+            query = query.filter(models.AnalyticsError.id == id)
         if barcode:
-            results = [r for r in results if r.barcode == barcode]
+            query = query.filter(models.AnalyticsError.barcode.ilike(f"%{barcode}%"))
         if alternative_call_number:
-            results = [r for r in results if r.alternative_call_number == alternative_call_number]
+            query = query.filter(models.AnalyticsError.alternative_call_number.ilike(f"%{alternative_call_number}%"))
         if title:
-            results = [r for r in results if r.title and title.lower() in r.title.lower()]
+            query = query.filter(models.AnalyticsError.title.ilike(f"%{title}%"))
         if call_number:
-            results = [r for r in results if r.call_number == call_number]
+            query = query.filter(models.AnalyticsError.call_number.ilike(f"%{call_number}%"))
         if status:
-            results = [r for r in results if r.status == status]
+            query = query.filter(models.AnalyticsError.status == status)
         if error_reason:
-            results = [r for r in results if r.error_reason == error_reason]
-        return results
+            query = query.filter(models.AnalyticsError.error_reason == error_reason)
+        results = query.offset(skip).limit(limit).all()
 
-    raise HTTPException(status_code=404, detail="Table not found")
+    else:
+        raise HTTPException(status_code=404, detail="Table not found")
+
+    return [serialize_model(r) for r in results]
 
 @router.get("/{table}/{record_id}")
 def read_record(
     table: str,
     record_id: int,
     db: Session = Depends(get_db)
-) -> Any:
-    """Get a single record by ID"""
-    records = search_records(table, id=record_id, db=db)
-    return records[0] if records else None
+) -> Dict[str, Any]:
+    recs = search_records(table, id=record_id, skip=0, limit=1, db=db)
+    if not recs:
+        raise HTTPException(status_code=404, detail="Record not found")
+    return recs[0]
 
-@router.post("/{table}/create")
+@router.post("/{table}/create", status_code=201)
 def create_record(
     table: str,
     payload: Dict[str, Any],
     db: Session = Depends(get_db)
-) -> Any:
-    """Create a new record in the given table"""
-    if table == 'items':
-        return create_item(db, **payload)
-    if table == 'analytics':
-        return create_analytics(db, **payload)
-    if table == 'weeded_items':
-        return create_weeded_item(db, **payload)
-    if table == 'analytics_errors':
-        return create_analytics_error(db, **payload)
-    raise HTTPException(status_code=404, detail="Table not found")
+) -> Dict[str, Any]:
+    if table == 'items': obj = models.Item(**payload)
+    elif table == 'analytics': obj = models.Analytics(**payload)
+    elif table == 'weeded_items': obj = models.WeededItem(**payload)
+    elif table == 'analytics_errors': obj = models.AnalyticsError(**payload)
+    else: raise HTTPException(status_code=404, detail="Table not found")
+    db.add(obj); db.commit(); db.refresh(obj)
+    return serialize_model(obj)
 
 @router.patch("/{table}/{record_id}")
 def update_record(
@@ -153,34 +151,25 @@ def update_record(
     record_id: int,
     payload: Dict[str, Any],
     db: Session = Depends(get_db)
-) -> Any:
-    """Update an existing record by ID"""
-    if table == 'items':
-        return update_item(db, record_id, **payload)
-    if table == 'analytics':
-        return update_analytics(db, record_id, **payload)
-    if table == 'weeded_items':
-        return update_weeded_item(db, record_id, **payload)
-    if table == 'analytics_errors':
-        return update_analytics_error(db, record_id, **payload)
-    raise HTTPException(status_code=404, detail="Table not found")
+) -> Dict[str, Any]:
+    rec = db.query(getattr(models, table.capitalize().replace('_', ''))).get(record_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Record not found")
+    for k, v in payload.items(): setattr(rec, k, v)
+    db.commit(); db.refresh(rec)
+    return serialize_model(rec)
 
 @router.delete("/{table}/{record_id}")
 def delete_record(
     table: str,
     record_id: int,
     db: Session = Depends(get_db)
-) -> Any:
-    """Delete a record by ID"""
-    if table == 'items':
-        return delete_item(db, record_id)
-    if table == 'analytics':
-        return delete_analytics(db, record_id)
-    if table == 'weeded_items':
-        return delete_weeded_item(db, record_id)
-    if table == 'analytics_errors':
-        return delete_analytics_error(db, record_id)
-    raise HTTPException(status_code=404, detail="Table not found")
+) -> Dict[str, Any]:
+    rec = db.query(getattr(models, table.capitalize().replace('_', ''))).get(record_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Record not found")
+    db.delete(rec); db.commit()
+    return serialize_model(rec)
 
 @router.get("/{table}/distinct/{field}")
 def get_distinct_field(
@@ -188,7 +177,6 @@ def get_distinct_field(
     field: str,
     db: Session = Depends(get_db)
 ) -> List[Any]:
-    """Return distinct, non-null values for a given field in the specified table."""
     model_map = {
         'items': models.Item,
         'analytics': models.Analytics,
@@ -197,7 +185,7 @@ def get_distinct_field(
     }
     model = model_map.get(table)
     if not model or not hasattr(model, field):
-        raise HTTPException(404, f"Unknown table or field: {table}.{field}")
+        raise HTTPException(status_code=404, detail=f"Unknown table or field: {table}.{field}")
     col = getattr(model, field)
-    distinct_vals = db.query(col).distinct().all()
-    return [v[0] for v in distinct_vals if v[0] is not None]
+    vals = db.query(col).distinct().all()
+    return [v[0] for v in vals if v[0] is not None]
