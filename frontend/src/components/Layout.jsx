@@ -25,9 +25,13 @@ const Layout = () => (
       </ul>
       <h3><b>Record Editing</b></h3>
       <ul>
-        <li><Link to="/create-items">Item Creator</Link></li>
+        <li><Link to="/create-records">Record Creator</Link></li>
+        <li><Link to="/manage-records">Manage Records</Link></li>
         <li><Link to="/combined-upload">Upload Files</Link></li>
-        <li><Link to="/review-needed">Review Needed</Link></li>
+
+      </ul>
+      <h3><b>Document Cataloging</b></h3>
+      <ul>
         <li><Link to="/sudoc-records">Sudoc Records</Link></li>
         <li><Link to="/sudoc-editor">Sudoc Editor</Link></li>
       </ul>
@@ -35,7 +39,8 @@ const Layout = () => (
       <h3><b>Admin Tools</b></h3>
       <ul>
         <li><Link to="/documentation">Documentation</Link></li>
-        <li><Link to ="/user-managment">User Managment</Link></li>
+        <li><Link to ="/user-management">User Management</Link></li>
+        <li><Link to="/user-logs">User Logs</Link></li>
       </ul>
     </nav>
 

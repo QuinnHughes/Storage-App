@@ -17,38 +17,32 @@ def upload_weed_list(
     db: Session       = Depends(get_db),
     user              = Depends(require_cataloger)
 ):
-    # 1) Read file
     try:
         df = pd.read_excel(file.file)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid Excel file")
 
-    # 2) Normalize headers
     df.columns = (
         df.columns
           .str.strip()
           .str.lower()
           .str.replace(r"\s+", "_", regex=True)
     )
-    # Normalizes the nefarious U and u so they actually show up as weeded by the double barcode logic
+    # Normalizes the nefarious U and u so they actually show up as weeded
     df["barcode"]         = df["barcode"].astype(str).str.strip().str.upper()
     df["scanned_barcode"] = df["scanned_barcode"].astype(str).str.strip().str.upper()
    
-    # 3) Ensure required columns exist
     for col in ("alternative_call_number", "barcode", "scanned_barcode"):
         if col not in df.columns:
             raise HTTPException(status_code=400, detail=f"Missing column: {col}")
 
-    # 4) Drop exact duplicates within this upload
     df = df.drop_duplicates(subset=["alternative_call_number", "barcode"])
 
-    # 5) Fetch already‐weeded keys to skip
     existing = {
         (w.alternative_call_number, w.barcode)
         for w in crud.get_weeded_items(db)
     }
 
-    # 6) Build Pydantic inputs, skipping any that already exist
     wis: list[WeededItemCreate] = []
     for row in df.itertuples(index=False, name="Row"):
         key = (row.alternative_call_number, row.barcode)
@@ -62,10 +56,8 @@ def upload_weed_list(
             )
         )
 
-    # 7) If nothing new remains, return empty list
     if not wis:
         return []
 
-    # 8) Bulk‐insert new items and return them
     created = crud.bulk_create_weeded_items(db, wis)
     return created

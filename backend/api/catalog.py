@@ -33,14 +33,9 @@ def search_items(
     Returns a list of items matching any of the provided filters. Each item
     includes an embedded 'analytics' object with 'title' and 'status' if
     a matching analytics row exists (matching both barcode and alternative_call_number).
-
-    - If both 'barcode' and 'alternative_call_number' are provided, items matching either will be returned.
-    - Additional filters (floor, range_code, ladder, shelf) are combined with AND.
-    - Returns an empty list if no items match.
     """
     query = db.query(models.Item)
 
-    # Build OR conditions for barcode/alternative_call_number if either provided
     or_conditions = []
     if barcode:
         or_conditions.append(models.Item.barcode.ilike(f"%{barcode}%"))
@@ -50,7 +45,6 @@ def search_items(
     if or_conditions:
         query = query.filter(or_(*or_conditions))
 
-    # Apply exact-match filters
     if floor:
         query = query.filter(models.Item.floor == floor)
     if range_code:
@@ -101,15 +95,7 @@ def search_items(
     summary="Get distinct floor, range_code, ladder, and shelf values from items",
 )
 def get_item_filters(db: Session = Depends(get_db)):
-    """
-    Return distinct non-null values for:
-      - Item.floor
-      - Item.range_code
-      - Item.ladder
-      - Item.shelf
-
-    so that the frontend can populate dropdowns for item filters.
-    """
+    
     floors = db.query(models.Item.floor).distinct().all()
     ranges = db.query(models.Item.range_code).distinct().all()
     ladders = db.query(models.Item.ladder).distinct().all()
@@ -133,5 +119,6 @@ def get_empty_slot_details(db: Session = Depends(get_db)):
         SELECT floor, "range", ladder, shelf, empty_position
         FROM empty_slot_details
         ORDER BY floor, "range", ladder, shelf, empty_position
-    """)).mappings().all()
+    """
+    )).mappings().all()
     return [EmptySlotDetail(**r) for r in rows]

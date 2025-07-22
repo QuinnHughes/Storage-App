@@ -21,8 +21,7 @@ from api.logs import router as logs_router
 from api.accession import router as accession_router
 from api.weed import router as weed_router
 from api.users import router as users_router
-
-
+from api.record_management import router as record_management_router
 from core.auth import (
     require_viewer,
     require_book_worm,
@@ -95,6 +94,12 @@ app.include_router(
     tags=["Weeded Items"],
     dependencies=[Depends(require_cataloger)],
 )
+app.include_router(
+    record_management_router,
+    prefix="/record-management",
+    tags=["record-management"],
+    dependencies=[Depends(require_cataloger)]
+)
     
 # ── ADMIN-ONLY ROUTES ─────────────────────────────────────────────────────────
 app.include_router(
@@ -108,10 +113,11 @@ app.include_router(
 def read_admin_data(current_user: User = Depends(require_admin)):
     return {"msg": f"Hello {current_user.username}, you’re an admin!"}
 
+
 # ── USER MANAGEMENT (admin only) ─────────────────────────────────────────────
 app.include_router(
     users_router,
-    prefix="/users",
+    prefix="/api/users",
     tags=["Users"],
     dependencies=[Depends(require_admin)],
 )

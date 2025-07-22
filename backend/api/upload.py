@@ -30,7 +30,6 @@ async def upload_items_file(file: UploadFile = File(...), db: Session = Depends(
     contents = await file.read()
 
     try:
-        # Use openpyxl for .xlsx; default engine for .xls
         engine = "openpyxl" if filename.endswith(".xlsx") else None
         df = pd.read_excel(BytesIO(contents), engine=engine)
     except Exception as e:
@@ -113,7 +112,6 @@ async def upload_analytics_file(file: UploadFile = File(...), db: Session = Depe
     contents = await file.read()
 
     try:
-        # Use openpyxl for .xlsx; default engine for .xls
         engine = "openpyxl" if filename.endswith(".xlsx") else None
         df = pd.read_excel(BytesIO(contents), engine=engine)
     except Exception as e:

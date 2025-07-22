@@ -10,14 +10,16 @@ import EmptySlots from "./pages/EmptySlots";
 import ItemSearch from "./pages/ItemSearch";
 import AnalyticsSearch from "./pages/AnalyticsSearch";
 import AnalyticsErrors from "./pages/AnalyticsErrors";
-import CreateItems from "./pages/CreateItems";
+import CreateRecords from "./pages/CreateRecords";
+import ManageRecords from "./pages/ManageRecords"
 import CombinedUpload from "./pages/CombinedUpload";
-import ReviewNeeded from "./pages/ReviewNeeded";
 import SudocRecords from "./pages/SudocRecords";
 import Documentation from "./pages/Documentation";
 import SudocEditor from "./pages/SudocEditor";
 import AccessionSlots from "./pages/AccessionSlots"
-import UserManagment from "./pages/UserManagment"
+import UserManagement from "./pages/UserManagement"
+import UserLogs from "./pages/UserLogs";
+
 
 export default function App() {
   return (
@@ -41,11 +43,12 @@ export default function App() {
           <Route path="item-search" element={<ItemSearch />} />
           <Route path="analytics-search" element={<AnalyticsSearch />} />
           <Route path="analytics-errors" element={<AnalyticsErrors />} />
-          <Route path="create-items" element={<CreateItems />} />
+          <Route path="create-records" element={<CreateRecords />} />
+          <Route path="manage-records" element={<ManageRecords />} />
           <Route path="combined-upload" element={<CombinedUpload />} />
-          <Route path="review-needed" element={<ReviewNeeded />} />
+          <Route path="user-logs" element={<UserLogs />} />
           <Route path="documentation" element={<Documentation />} /> 
-          <Route path="user-managment" element={<UserManagment />} />
+          <Route path="user-management" element={<UserManagement />} />
           <Route path="sudoc-records" element={<SudocRecords />} />
           {/* Editor handles both listing and incoming record_id param */}
           <Route path="sudoc-editor" element={<SudocEditor />} />

@@ -38,6 +38,11 @@ export default defineConfig({
          changeOrigin: true,
          secure: false,
        },
+         '/record-management': {
+         target: 'http://localhost:8000',
+         changeOrigin: true,
+         secure: false,
+       },
     }
   }
 });

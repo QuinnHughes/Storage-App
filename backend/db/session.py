@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-load_dotenv()  # looks for a .env file in this folder
+load_dotenv()  # looks for a .env file in the backend
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
