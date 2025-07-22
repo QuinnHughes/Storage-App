@@ -13,12 +13,10 @@ router = APIRouter()
 
 @router.get("/list", response_model=List[UserRead])
 def list_users(db: Session = Depends(get_db)):
-    """List all users (admin only)"""
     return get_users(db)
 
 @router.post("/create", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def add_user(data: UserCreate, db: Session = Depends(get_db)):
-    """Create a new user"""
     existing = get_user_by_username(db, data.username)
     if existing:
         raise HTTPException(status_code=400, detail="Username already taken")
@@ -26,7 +24,6 @@ def add_user(data: UserCreate, db: Session = Depends(get_db)):
 
 @router.get("/read/{user_id}", response_model=UserRead)
 def read_user(user_id: int, db: Session = Depends(get_db)):
-    """Get a user by ID"""
     user = get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -38,7 +35,6 @@ def modify_user(
     data: UserUpdate,
     db: Session = Depends(get_db)
 ):
-    """Update a user's attributes (username, password, role)"""
     user = get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

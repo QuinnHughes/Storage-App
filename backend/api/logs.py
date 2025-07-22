@@ -18,12 +18,7 @@ def read_logs(
     db: Session = Depends(get_db),
     _:    None = Depends(require_admin),
 ):
-    """
-    Retrieve user-activity logs.
-    - Requires admin role.
-    - Supports optional filtering by user_id and path.
-    - Pagination via skip & limit.
-    """
+
     query = db.query(UserLog)
     if user_id is not None:
         query = query.filter(UserLog.user_id == user_id)

@@ -16,9 +16,7 @@ def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
-    """
-    Exchange username + password for a JWT access token.
-    """
+    
     user = get_user_by_username(db, form_data.username)
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
@@ -32,7 +30,4 @@ def login_for_access_token(
 
 @router.get("/me", response_model=UserProfile)
 def read_current_user(current_user = Depends(get_current_user)):
-    """
-    Return the profile of the currently authenticated user including id, username, and role.
-    """
     return current_user

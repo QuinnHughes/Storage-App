@@ -10,18 +10,12 @@ from schemas.weeded_item import WeededItemCreate
 
 
 def get_user_by_username(db: Session, username: str) -> User | None:
-    """
-    Return the User with the given username, or None if not found.
-    """
+ 
     return db.query(User).filter(User.username == username).first()
 
 
 def create_user(db: Session, username: str, password: str, role: str) -> User:
-    """
-    Create a new user:
-    - Hash the plain-text password (imported inside to avoid circular imports)
-    - Save username, hashed_password, and role
-    """
+
     from core.auth import hash_password  # deferred import
     hashed = hash_password(password)
     user = User(username=username, hashed_password=hashed, role=role)
@@ -109,9 +103,7 @@ def create_analytics(db: Session, analytics_in: AnalyticsCreate):
 
 
 def create_analytics_error(db: Session, error_in: AnalyticsErrorCreate):
-    """
-    Insert a new AnalyticsError, skipping if an identical record already exists.
-    """
+
     stmt = insert(models.AnalyticsError).values(
         barcode=error_in.barcode,
         alternative_call_number=error_in.alternative_call_number,
@@ -233,11 +225,7 @@ def bulk_create_weeded_items(
     db: Session,
     wis: List[WeededItemCreate]
 ) -> List[models.WeededItem]:
-    """
-    Inserts a batch of weeded items, skipping any duplicates on (alternative_call_number, barcode),
-    and returns only the newly created ORM objects.
-    """
-    # 1) Prepare list of dicts
+
     rows = []
     for wi in wis:
         rows.append({
@@ -247,7 +235,6 @@ def bulk_create_weeded_items(
             "is_weeded":               (wi.scanned_barcode == wi.barcode) if wi.scanned_barcode else False,
         })
 
-    # 2) Build INSERT ... ON CONFLICT DO NOTHING statement
     stmt = (
         insert(models.WeededItem)
         .values(rows)
@@ -264,11 +251,9 @@ def bulk_create_weeded_items(
         )
     )
 
-    # 3) Execute and commit
     result = db.execute(stmt)
     db.commit()
 
-    # 4) Hydrate and return the newly inserted ORM objects
     inserted = result.fetchall()
     return [
         models.WeededItem(
@@ -336,18 +321,14 @@ def delete_weeded_item(db: Session, weeded_id: int):
     return obj
 
 def get_users(db: Session) -> List[User]:
-    """Return all users"""
     return db.query(User).all()
 
 
 def get_user_by_id(db: Session, user_id: int) -> User | None:
-    """Return a single user by ID"""
     return db.query(User).filter(User.id == user_id).first()
 
 
 def update_user(db: Session, user: User, data) -> User:
-    """Update user's attributes based on UserUpdate schema"""
-    # data may have username, password, role
     if data.username:
         user.username = data.username
     if data.password:
@@ -362,6 +343,5 @@ def update_user(db: Session, user: User, data) -> User:
 
 
 def delete_user(db: Session, user: User) -> None:
-    """Delete a user record"""
     db.delete(user)
     db.commit()

@@ -1,6 +1,6 @@
 // Example: AnalyticsManager.jsx
 
-export default function AnalyticsManager() {
+export default function UserLogs() {
   return (
     <div>
       <h1>Analytics Manager</h1>

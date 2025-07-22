@@ -28,7 +28,6 @@ const Layout = () => (
         <li><Link to="/create-records">Record Creator</Link></li>
         <li><Link to="/manage-records">Manage Records</Link></li>
         <li><Link to="/combined-upload">Upload Files</Link></li>
-        <li><Link to="/review-needed">Review Needed</Link></li>
 
       </ul>
       <h3><b>Document Cataloging</b></h3>
@@ -41,6 +40,7 @@ const Layout = () => (
       <ul>
         <li><Link to="/documentation">Documentation</Link></li>
         <li><Link to ="/user-management">User Management</Link></li>
+        <li><Link to="/user-logs">User Logs</Link></li>
       </ul>
     </nav>
 

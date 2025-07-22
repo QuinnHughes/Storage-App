@@ -20,7 +20,7 @@ def get_empty_slots(
     db: Session = Depends(get_db)
 ) -> List[str]:
     """
-    Return the first N individual empty slots (excluding full shelves) formatted as alternative call numbers.
+    Return the first individual empty slots (excluding full shelves) formatted as alternative call numbers.
     """
     try:
         slots: List[EmptySlotDetail] = get_empty_slot_details(db)
@@ -42,7 +42,7 @@ def get_empty_shelves(
     db: Session = Depends(get_db)
 ) -> List[str]:
     """
-    Return the first N entirely empty shelves formatted as call numbers with position XXX.
+    Return the first entirely empty shelves formatted as call numbers with position XXX.
     """
     try:
         slots: List[EmptySlotDetail] = get_empty_slot_details(db)

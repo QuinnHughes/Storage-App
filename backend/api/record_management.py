@@ -37,8 +37,7 @@ def search_records(
     limit: int = Query(100),
     db: Session = Depends(get_db)
 ) -> List[Dict[str, Any]]:
-    """Search each table using direct SQL filters and substring matches"""
-    # Build and execute table-specific queries
+
     if table == "items":
         query = db.query(models.Item)
         if id is not None:

@@ -13,18 +13,13 @@ RECORDS_DIR = os.path.join(BASE_DIR, "Record_sets")
 def _connect():
     return sqlite3.connect(SQLITE_PATH)
 
-# backend/core/sudoc.py
-
 def search_records(
     query: str,
     title: Optional[str] = None,
     limit: int = 20,
     offset: int = 0
 ) -> List[dict]:
-    """
-    Return up to `limit` rows (with `offset`) whose SuDoc call number contains `query`,
-    and whose title contains `title` if given. Includes the precomputed `oclc` field.
-    """
+
     sql = """
     SELECT
       rowid,
