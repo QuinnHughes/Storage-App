@@ -10,7 +10,6 @@ import EmptySlots from "./pages/EmptySlots";
 import ItemSearch from "./pages/ItemSearch";
 import AnalyticsSearch from "./pages/AnalyticsSearch";
 import AnalyticsErrors from "./pages/AnalyticsErrors";
-import CreateRecords from "./pages/CreateRecords";
 import ManageRecords from "./pages/ManageRecords"
 import CombinedUpload from "./pages/CombinedUpload";
 import SudocRecords from "./pages/SudocRecords";
@@ -43,7 +42,6 @@ export default function App() {
           <Route path="item-search" element={<ItemSearch />} />
           <Route path="analytics-search" element={<AnalyticsSearch />} />
           <Route path="analytics-errors" element={<AnalyticsErrors />} />
-          <Route path="create-records" element={<CreateRecords />} />
           <Route path="manage-records" element={<ManageRecords />} />
           <Route path="combined-upload" element={<CombinedUpload />} />
           <Route path="user-logs" element={<UserLogs />} />
