@@ -28,7 +28,7 @@ export default function UserManagement() {
     setLoading(true);
     setError('');
     try {
-      const response = await api.get('/users/list');
+      const response = await api.get('/api/users/list');
       setUsers(response.data);
     } catch (err) {
       setError(err.response?.data?.detail || err.message);
@@ -53,9 +53,9 @@ export default function UserManagement() {
     setError('');
     try {
       if (editingUser) {
-        await api.patch(`/users/modify/${editingUser.id}`, formData);
+        await api.patch(`/api/users/modify/${editingUser.id}`, formData);
       } else {
-        await api.post('/users/create', formData);
+        await api.post('/api/users/create', formData);
       }
       setShowForm(false);
       fetchUsers();
@@ -68,7 +68,7 @@ export default function UserManagement() {
     if (!window.confirm('Delete this user?')) return;
     setError('');
     try {
-      await api.delete(`/users/remove/${id}`);
+      await api.delete(`/api/users/remove/${id}`);
       setUsers((prev) => prev.filter((u) => u.id !== id));
     } catch (err) {
       setError(err.response?.data?.detail || err.message);
