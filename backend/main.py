@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from db.session import engine
 from db.models import Base, User
@@ -31,19 +32,42 @@ from core.auth import (
 from middleware.logging import LoggingMiddleware
 
 # Create tables (development only—use Alembic in prod)
-Base.metadata.create_all(bind=engine)
+if os.getenv("ENV", "dev") == "dev":
+    Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Shelf Catalog API")
-
+app = FastAPI(
+    title="Shelf Catalog API",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+)
 # CORS (restrict origins before production)
+origins = os.getenv("FRONTEND_URL", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+@app.get("/docs", include_in_schema=False)
+async def docs_redirect():
+    return RedirectResponse(url="/api/docs")
+
+@app.get("/openapi.json", include_in_schema=False)
+async def openapi_redirect():
+    return RedirectResponse(url="/api/openapi.json")
+
+@app.get("/redoc", include_in_schema=False)
+async def redoc_redirect():
+    return RedirectResponse(url="/api/redoc")
+
+# Health check (for Kubernetes/LB probes)
+@app.get("/api/health", include_in_schema=False)
+async def health():
+    return {"status": "ok"}
+# ── ROUTES ───────────────────────────────────────────────────────────────────
 # Request-logging middleware
 app.add_middleware(LoggingMiddleware)
 
