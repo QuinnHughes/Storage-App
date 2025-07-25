@@ -38,7 +38,7 @@ app = FastAPI(title="Shelf Catalog API")
 # CORS (restrict origins before production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,36 +49,40 @@ app.add_middleware(LoggingMiddleware)
 
 # ── AUTHENTICATION ───────────────────────────────────────────────────────────
 # Registers POST /auth/token (and GET /auth/me if implemented)
-app.include_router(auth_router)
+app.include_router(
+    auth_router,
+    prefix="/api/auth",        
+    tags=["Auth"],
+)
 
 # ── PROTECTED ROUTES ─────────────────────────────────────────────────────────
 app.include_router(
     upload_router,
-    prefix="/upload",
+    prefix="/api/upload",
     tags=["Upload"],
     dependencies=[Depends(require_book_worm)],
 )
 app.include_router(
     analytics_errors_router,
-    prefix="/catalog/analytics-errors",
+    prefix="/api/catalog/analytics-errors",
     tags=["AnalyticsErrors"],
     dependencies=[Depends(require_cataloger)],
 )
 app.include_router(
     analytics_router,
-    prefix="/analytics",
+    prefix="/api/analytics",
     tags=["Analytics"],
     dependencies=[Depends(require_viewer)],
 )
 app.include_router(
     catalog_router,
-    prefix="/catalog",
+    prefix="/api/catalog",
     tags=["Catalog"],
     dependencies=[Depends(require_viewer)],
 )
 app.include_router(
     sudoc_router,
-    prefix="/catalog/sudoc",
+    prefix="/api/catalog/sudoc",
     tags=["SuDoc"],
     dependencies=[Depends(require_cataloger)],
 )
@@ -90,13 +94,13 @@ app.include_router(
 )
 app.include_router(
     weed_router,
-    prefix="/weed",
+    prefix="/api/weed",
     tags=["Weeded Items"],
     dependencies=[Depends(require_cataloger)],
 )
 app.include_router(
     record_management_router,
-    prefix="/record-management",
+    prefix="/api/record-management",
     tags=["record-management"],
     dependencies=[Depends(require_cataloger)]
 )
@@ -104,14 +108,10 @@ app.include_router(
 # ── ADMIN-ONLY ROUTES ─────────────────────────────────────────────────────────
 app.include_router(
     logs_router,
-    prefix="/logs",
+    prefix="/api/logs",
     tags=["Logs"],
     dependencies=[Depends(require_admin)],
 )
-
-@app.get("/admin-only", tags=["Admin"])
-def read_admin_data(current_user: User = Depends(require_admin)):
-    return {"msg": f"Hello {current_user.username}, you’re an admin!"}
 
 
 # ── USER MANAGEMENT (admin only) ─────────────────────────────────────────────

@@ -1,6 +1,6 @@
 // src/pages/SudocEditor.jsx
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import apiFetch from '../api/client';
 
 export default function SudocEditor() {
   const [records, setRecords] = useState([]);
@@ -21,28 +21,29 @@ useEffect(() => {
     if (!marcFields[rec.id] && !loadingIds.has(rec.id)) {
       setLoadingIds((prev) => new Set(prev).add(rec.id));
 
-      axios
-        .get(`/catalog/sudoc/sudoc/${rec.id}`, {     // ← fixed endpoint
+        apiFetch(`/catalog/sudoc/sudoc/${rec.id}`, {
           headers: localStorage.getItem("token")
             ? { Authorization: `Bearer ${localStorage.getItem("token")}` }
             : {},
         })
-        .then((res) => {
-          setMarcFields((prev) => ({ ...prev, [rec.id]: res.data }));
+        .then(async res => {
+          if (!res.ok) throw new Error(`Status ${res.status}`);
+          const data = await res.json();
+          setMarcFields(prev => ({ ...prev, [rec.id]: data }));
         })
-        .catch((err) => {
+        .catch(err => {
           console.error(`Error fetching MARC for ${rec.id}:`, err);
         })
         .finally(() => {
-          setLoadingIds((prev) => {
+          setLoadingIds(prev => {
             const next = new Set(prev);
             next.delete(rec.id);
             return next;
           });
         });
-    }
-  });
-  }, [records, marcFields, loadingIds]);
+       }
+     });
+   }, [records, marcFields, loadingIds]);
 
   const handleRemove = (id) => {
     const updated = records.filter((r) => r.id !== id);

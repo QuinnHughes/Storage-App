@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
+import apiFetch from '../api/client';
 
 export default function AnalyticsErrors() {
   const [errors, setErrors] = useState([]);
@@ -9,7 +10,7 @@ export default function AnalyticsErrors() {
 
   useEffect(() => {
     const token = localStorage.getItem("token");
-    fetch("/catalog/analytics-errors/", {
+    apiFetch("/catalog/analytics-errors/", {
       headers: {
         Authorization: `Bearer ${token}`,
       },

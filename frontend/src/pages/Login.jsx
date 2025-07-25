@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import apiFetch from '../api/client';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -16,7 +17,7 @@ export default function Login() {
       params.append('username', username);
       params.append('password', password);
 
-      const resp = await fetch('/auth/token', {
+      const resp = await apiFetch('/auth/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params.toString(),

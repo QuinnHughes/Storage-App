@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Pencil, Trash2, Plus, X, Check, AlertCircle } from 'lucide-react';
+import apiFetch from '../api/client';
 
 const tableConfigs = {
   items: {
@@ -90,7 +91,7 @@ export default function ManageRecords() {
       await Promise.all(cfg.fields.map(async f => {
         if (f.distinct) {
           try {
-            const res = await fetch(
+            const res = await apiFetch(
               `/record-management/${table}/distinct/${f.name}`,
               { headers: { Authorization: `Bearer ${token}` } }
             );
@@ -127,7 +128,7 @@ export default function ManageRecords() {
     });
     
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/record-management/${table}/search?${qs.toString()}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -253,28 +254,13 @@ export default function ManageRecords() {
       );
     }
 
-    if (field.type === 'select') {
-      return (
-        <select
-          value={value || ''}
-          onChange={onChange}
-          disabled={disabled}
-          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-        >
-          <option value="">Select...</option>
-          {(options[field.name] || []).map(opt => (
-            <option key={opt} value={opt}>{opt}</option>
-          ))}
-        </select>
-      );
-    }
-
+    // Replace select fields with text input
     return (
       <input
         type="text"
         value={value || ''}
         onChange={onChange}
-        disabled={disabled}
+        disabled={disabled || field.readonly}
         placeholder={field.readonly ? 'Auto-generated' : `Enter ${field.label}`}
         className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
       />

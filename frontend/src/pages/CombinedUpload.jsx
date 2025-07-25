@@ -1,4 +1,5 @@
 import { useState } from "react";
+import apiFetch from '../api/client';
 
 // CombinedUpload: Page for uploading analytics, items, and weeded items
 // Descriptions are set in code below and displayed as static text
@@ -12,7 +13,7 @@ export default function CombinedUpload() {
   // Static descriptions - update these in the code to change the text
   const descriptions = {
     analytics: "Upload Analytics excel files from oracle analytics here, for information on how to retrieve analytics for here see documentation.",
-    items: "Upload Item files here for whats currently on the shelves. NOTICE read the full description in documentation before uploading anything here and make sure you have a complete understanding. This is one of the more simple tools but consider this a warning a mistake here will cause hours of work for someone else and will cause innacuracys in nearly the entire app.",
+    items: "Upload Item files here for whats currently on the shelves. NOTICE read the full description in documentation before uploading anything here.",
     weed: "Upload a weeded items excel file. In documentation is a sample for how to edit a completed weeding list to upload. ",
   };
 
@@ -27,13 +28,13 @@ export default function CombinedUpload() {
 
     if (type === "analytics") {
       file = analyticsFile;
-      endpoint = "/upload/analytics-file";
+      endpoint = "/api/upload/analytics-file";
     } else if (type === "items") {
       file = itemsFile;
-      endpoint = "/upload/items-file";
+      endpoint = "/api/upload/items-file";
     } else if (type === "weed") {
       file = weedFile;
-      endpoint = "/weed/upload";
+      endpoint = "/api/weed/upload";
     }
 
     if (!file) {

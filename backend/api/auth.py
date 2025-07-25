@@ -9,7 +9,7 @@ from db.session import get_db
 from db.crud import get_user_by_username
 from schemas.user import UserProfile
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter()
 
 @router.post("/token")
 def login_for_access_token(
