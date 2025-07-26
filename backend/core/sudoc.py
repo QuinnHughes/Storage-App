@@ -4,7 +4,8 @@ import os
 import sqlite3
 import zipfile
 from typing import List, Optional
-from pymarc import MARCReader, Record
+from pymarc import MARCReader, MARCWriter, Record
+import io
 
 BASE_DIR    = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SQLITE_PATH = os.path.join(BASE_DIR, "cgp_sudoc_index.db")
@@ -81,36 +82,77 @@ def get_record_fields(record_id: int) -> List[dict]:
         return []
 
     out = []
+
     for field in rec.get_fields():
-        try:
-            ind1, ind2 = field.indicators
-        except Exception:
-            continue
+        if field.is_control_field():
+            out.append({
+                "tag": field.tag,
+                "ind1": " ",
+                "ind2": " ",
+                "subfields": {"a": str(field.data)}
+            })
+        else:
+            subfields_map = {}
 
-        subfields_map = {}
-        for sf in field.subfields:
-            code  = getattr(sf, "code", None)
-            value = getattr(sf, "value", None)
-            if code is None or value is None:
-                continue
-            if code in subfields_map:
-                existing = subfields_map[code]
-                if isinstance(existing, list):
-                    existing.append(value)
+            for subfield in field.subfields:
+                code = getattr(subfield, "code", None)
+                val  = getattr(subfield, "value", None)
+
+                if code is None or val is None:
+                    continue
+
+                if code in subfields_map:
+                    existing = subfields_map[code]
+                    if isinstance(existing, list):
+                        existing.append(val)
+                    else:
+                        subfields_map[code] = [existing, val]
                 else:
-                    subfields_map[code] = [existing, value]
-            else:
-                subfields_map[code] = value
+                    subfields_map[code] = val
 
-        for code, val in subfields_map.items():
-            if isinstance(val, list):
-                subfields_map[code] = ", ".join(val)
+            # Join list values if needed
+            for k in subfields_map:
+                if isinstance(subfields_map[k], list):
+                    subfields_map[k] = ", ".join(subfields_map[k])
 
-        out.append({
-            "tag":       field.tag,
-            "ind1":      ind1,
-            "ind2":      ind2,
-            "subfields": subfields_map
-        })
+            out.append({
+                "tag": field.tag,
+                "ind1": field.indicator1 or " ",
+                "ind2": field.indicator2 or " ",
+                "subfields": subfields_map
+            })
 
     return out
+
+def save_marc_record(record_id: int, record: Record) -> bool:
+    """Save an updated MARC record back to its ZIP file"""
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute("SELECT zip_file FROM records WHERE rowid = ?", (record_id,))
+    row = cur.fetchone()
+    conn.close()
+    
+    if not row:
+        return False
+        
+    zip_filename = row[0]
+    zip_path = os.path.join(RECORDS_DIR, zip_filename)
+    
+    try:
+        # This is a simplified version - you'll need to implement proper
+        # handling of updating records within ZIP files
+        with zipfile.ZipFile(zip_path, 'a') as zf:
+            # Create a temporary file for the updated record
+            buffer = io.BytesIO()
+            writer = MARCWriter(buffer)
+            writer.write(record)
+            buffer.seek(0)
+            
+            # Add/update the record in the ZIP
+            # Note: This is oversimplified - you'll need proper temp file handling
+            zf.writestr(f"updated_{record_id}.mrc", buffer.getvalue())
+            
+        return True
+    except Exception as e:
+        print(f"Error saving record: {e}")
+        return False
