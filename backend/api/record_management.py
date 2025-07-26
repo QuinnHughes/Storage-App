@@ -8,6 +8,13 @@ from db.session import get_db
 
 router = APIRouter()
 
+model_map = {
+    'items':            models.Item,
+    'analytics':        models.Analytics,
+    'weeded_items':     models.WeededItem,
+    'analytics_errors': models.AnalyticsError,
+}
+
 # Helper to serialize SQLAlchemy models
 def serialize_model(obj: Any) -> Dict[str, Any]:
     return {col.name: getattr(obj, col.name) for col in obj.__table__.columns}
@@ -144,6 +151,7 @@ def create_record(
     db.add(obj); db.commit(); db.refresh(obj)
     return serialize_model(obj)
 
+
 @router.patch("/{table}/{record_id}")
 def update_record(
     table: str,
@@ -151,11 +159,16 @@ def update_record(
     payload: Dict[str, Any],
     db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
-    rec = db.query(getattr(models, table.capitalize().replace('_', ''))).get(record_id)
+    Model = model_map.get(table)
+    if not Model:
+        raise HTTPException(status_code=404, detail="Table not found")
+    rec = db.query(Model).get(record_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Record not found")
-    for k, v in payload.items(): setattr(rec, k, v)
-    db.commit(); db.refresh(rec)
+    for k, v in payload.items():
+        setattr(rec, k, v)
+    db.commit()
+    db.refresh(rec)
     return serialize_model(rec)
 
 @router.delete("/{table}/{record_id}")
@@ -164,10 +177,14 @@ def delete_record(
     record_id: int,
     db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
-    rec = db.query(getattr(models, table.capitalize().replace('_', ''))).get(record_id)
+    Model = model_map.get(table)
+    if not Model:
+        raise HTTPException(status_code=404, detail="Table not found")
+    rec = db.query(Model).get(record_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Record not found")
-    db.delete(rec); db.commit()
+    db.delete(rec)
+    db.commit()
     return serialize_model(rec)
 
 @router.get("/{table}/distinct/{field}")

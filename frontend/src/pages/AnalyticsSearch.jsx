@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import apiFetch from '../api/client';
 
 // -----------------------------------------------------------------------------
 // Helper to export any array of objects to CSV and trigger a download
@@ -53,7 +54,7 @@ export default function AnalyticsSearch() {
     async function fetchFilters() {
       try {
         const token = localStorage.getItem("token");
-        const resp = await fetch("/analytics/search/analytics/filters", {
+        const resp = await apiFetch("/analytics/search/analytics/filters", {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!resp.ok) throw new Error(`Status ${resp.status}`);
@@ -89,7 +90,7 @@ export default function AnalyticsSearch() {
 
     try {
       const token = localStorage.getItem("token");
-      const resp = await fetch("/analytics/search/analytics" + qs, {
+      const resp = await apiFetch("/analytics/search/analytics" + qs, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (resp.ok) {

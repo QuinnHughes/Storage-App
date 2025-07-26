@@ -25,7 +25,6 @@ const Layout = () => (
       </ul>
       <h3><b>Record Editing</b></h3>
       <ul>
-        <li><Link to="/create-records">Record Creator</Link></li>
         <li><Link to="/manage-records">Manage Records</Link></li>
         <li><Link to="/combined-upload">Upload Files</Link></li>
 

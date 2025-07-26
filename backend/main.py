@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from db.session import engine
 from db.models import Base, User
@@ -31,54 +32,81 @@ from core.auth import (
 from middleware.logging import LoggingMiddleware
 
 # Create tables (development only—use Alembic in prod)
-Base.metadata.create_all(bind=engine)
+if os.getenv("ENV", "dev") == "dev":
+    Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Shelf Catalog API")
-
+app = FastAPI(
+    title="Shelf Catalog API",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+)
 # CORS (restrict origins before production)
+origins = os.getenv("FRONTEND_URL", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+@app.get("/docs", include_in_schema=False)
+async def docs_redirect():
+    return RedirectResponse(url="/api/docs")
+
+@app.get("/openapi.json", include_in_schema=False)
+async def openapi_redirect():
+    return RedirectResponse(url="/api/openapi.json")
+
+@app.get("/redoc", include_in_schema=False)
+async def redoc_redirect():
+    return RedirectResponse(url="/api/redoc")
+
+# Health check (for Kubernetes/LB probes)
+@app.get("/api/health", include_in_schema=False)
+async def health():
+    return {"status": "ok"}
+# ── ROUTES ───────────────────────────────────────────────────────────────────
 # Request-logging middleware
 app.add_middleware(LoggingMiddleware)
 
 # ── AUTHENTICATION ───────────────────────────────────────────────────────────
 # Registers POST /auth/token (and GET /auth/me if implemented)
-app.include_router(auth_router)
+app.include_router(
+    auth_router,
+    prefix="/api/auth",        
+    tags=["Auth"],
+)
 
 # ── PROTECTED ROUTES ─────────────────────────────────────────────────────────
 app.include_router(
     upload_router,
-    prefix="/upload",
+    prefix="/api/upload",
     tags=["Upload"],
     dependencies=[Depends(require_book_worm)],
 )
 app.include_router(
     analytics_errors_router,
-    prefix="/catalog/analytics-errors",
+    prefix="/api/catalog/analytics-errors",
     tags=["AnalyticsErrors"],
     dependencies=[Depends(require_cataloger)],
 )
 app.include_router(
     analytics_router,
-    prefix="/analytics",
+    prefix="/api/analytics",
     tags=["Analytics"],
     dependencies=[Depends(require_viewer)],
 )
 app.include_router(
     catalog_router,
-    prefix="/catalog",
+    prefix="/api/catalog",
     tags=["Catalog"],
     dependencies=[Depends(require_viewer)],
 )
 app.include_router(
     sudoc_router,
-    prefix="/catalog/sudoc",
+    prefix="/api/catalog/sudoc",
     tags=["SuDoc"],
     dependencies=[Depends(require_cataloger)],
 )
@@ -90,13 +118,13 @@ app.include_router(
 )
 app.include_router(
     weed_router,
-    prefix="/weed",
+    prefix="/api/weed",
     tags=["Weeded Items"],
     dependencies=[Depends(require_cataloger)],
 )
 app.include_router(
     record_management_router,
-    prefix="/record-management",
+    prefix="/api/record-management",
     tags=["record-management"],
     dependencies=[Depends(require_cataloger)]
 )
@@ -104,14 +132,10 @@ app.include_router(
 # ── ADMIN-ONLY ROUTES ─────────────────────────────────────────────────────────
 app.include_router(
     logs_router,
-    prefix="/logs",
+    prefix="/api/logs",
     tags=["Logs"],
     dependencies=[Depends(require_admin)],
 )
-
-@app.get("/admin-only", tags=["Admin"])
-def read_admin_data(current_user: User = Depends(require_admin)):
-    return {"msg": f"Hello {current_user.username}, you’re an admin!"}
 
 
 # ── USER MANAGEMENT (admin only) ─────────────────────────────────────────────

@@ -1,9 +1,13 @@
 import React, { useState } from "react";
+import apiFetch from '../api/client';
 
 export default function AccessionSlots() {
   const [mode, setMode] = useState("slots"); // "slots" or "shelves"
   const [count, setCount] = useState(10); // number of slots or shelves
   const [itemsPerShelf, setItemsPerShelf] = useState(1); // only for shelves mode
+  const [useRange, setUseRange] = useState(false); // whether to use range search
+  const [startRange, setStartRange] = useState(""); // start of range
+  const [endRange, setEndRange] = useState(""); // end of range
   const [pairs, setPairs] = useState([]);
   const [labelText, setLabelText] = useState("");
   const [error, setError] = useState("");
@@ -19,15 +23,22 @@ export default function AccessionSlots() {
     try {
       const headers = getAuthHeaders();
       let data;
+      
+      // Build query parameters
+      let queryParams = `limit=${count}`;
+      if (useRange && startRange && endRange) {
+        queryParams += `&start_range=${encodeURIComponent(startRange)}&end_range=${encodeURIComponent(endRange)}`;
+      }
+      
       if (mode === "slots") {
-        const res = await fetch(`/api/accession/empty-slots?limit=${count}`, { headers, credentials: "include" });
+        const res = await apiFetch(`/accession/empty-slots?${queryParams}`, { headers });
         if (res.status === 401) throw new Error("Session expired – please log in again.");
         if (!res.ok) throw new Error(`Error ${res.status}: ${res.statusText}`);
         data = await res.json();
         setPairs(data.map(acn => ({ barcode: "", alternative_call_number: acn })));
       } else {
         // shelves mode
-        const res = await fetch(`/api/accession/empty-shelves?limit=${count}`, { headers, credentials: "include" });
+        const res = await apiFetch(`/accession/empty-shelves?${queryParams}`, { headers });
         if (res.status === 401) throw new Error("Session expired – please log in again.");
         if (!res.ok) throw new Error(`Error ${res.status}: ${res.statusText}`);
         const shelves = await res.json();
@@ -70,10 +81,9 @@ export default function AccessionSlots() {
     setError("");
     try {
       const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
-      const res = await fetch(`/api/accession/labels`, {
+      const res = await apiFetch(`/accession/labels`, {
         method: "POST",
         headers,
-        credentials: "include",
         body: JSON.stringify(pairs)
       });
       if (res.status === 401) throw new Error("Session expired – please log in again.");
@@ -89,6 +99,7 @@ export default function AccessionSlots() {
     <div className="max-w-100% mx-auto p-6 bg-gray-50 rounded-2xl shadow-lg">
       <h1 className="text-2xl font-bold mb-4 text-indigo-700">Accession {mode === "slots" ? "Slots" : "Shelves"}</h1>
 
+      {/* Mode Selection */}
       <div className="flex items-center space-x-4 mb-4">
         <label className="flex items-center">
           <input
@@ -112,6 +123,46 @@ export default function AccessionSlots() {
         </label>
       </div>
 
+      {/* Range Search Toggle */}
+      <div className="mb-4">
+        <label className="flex items-center">
+          <input
+            type="checkbox"
+            checked={useRange}
+            onChange={(e) => setUseRange(e.target.checked)}
+            className="mr-2"
+          />
+          <span className="text-gray-700">Search within range</span>
+        </label>
+      </div>
+
+      {/* Range Input Fields */}
+      {useRange && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 p-4 bg-white rounded-lg border border-gray-200">
+          <div>
+            <label className="block text-gray-700 mb-2">Start Range (Alternative Call Number):</label>
+            <input
+              type="text"
+              value={startRange}
+              onChange={(e) => setStartRange(e.target.value)}
+              placeholder="e.g., S-1-01A-01-01-001"
+              className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 font-mono text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-gray-700 mb-2">End Range (Alternative Call Number):</label>
+            <input
+              type="text"
+              value={endRange}
+              onChange={(e) => setEndRange(e.target.value)}
+              placeholder="e.g., S-1-01B-05-10-999"
+              className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 font-mono text-sm"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Count and Items per Shelf Controls */}
       <div className="flex items-center space-x-3 mb-4">
         <div>
           <label className="block text-gray-700">Number of {mode === "slots" ? "slots" : "shelves"}:</label>
@@ -137,16 +188,31 @@ export default function AccessionSlots() {
         )}
         <button
           onClick={fetchSlots}
-          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
+          disabled={useRange && (!startRange || !endRange)}
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed"
         >
           Get {mode === "slots" ? "Slots" : "Shelves"}
         </button>
       </div>
 
+      {/* Range validation message */}
+      {useRange && (!startRange || !endRange) && (
+        <div className="text-amber-600 mb-4 text-sm">
+          Please enter both start and end range values to search within a range.
+        </div>
+      )}
+
       {error && <div className="text-red-500 mb-4">Error: {error}</div>}
 
       {pairs.length > 0 && (
         <>
+          <div className="mb-4 text-sm text-gray-600">
+            Found {pairs.length} {mode === "slots" ? "slots" : "shelf entries"}
+            {useRange && startRange && endRange && (
+              <span> within range {startRange} to {endRange}</span>
+            )}
+          </div>
+
           <table className="min-w-full bg-white rounded-lg overflow-hidden shadow">
             <thead className="bg-indigo-100">
               <tr>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import apiFetch from '../api/client';
 
 export default function ItemSearch() {
   const [query, setQuery] = useState("");
@@ -19,7 +20,7 @@ export default function ItemSearch() {
     async function fetchFilters() {
       try {
         const token = localStorage.getItem('token');
-        const resp = await fetch("/catalog/search/item-filters", {
+        const resp = await apiFetch("/catalog/search/item-filters", {
           headers: {
             Authorization: `Bearer ${token}`
           }
@@ -63,7 +64,7 @@ export default function ItemSearch() {
       if (qs.endsWith("&")) qs = qs.slice(0, -1);
 
       const token = localStorage.getItem('token');
-      const resp = await fetch("/catalog/search/items" + qs, {
+      const resp = await apiFetch("/catalog/search/items" + qs, {
         headers: {
           Authorization: `Bearer ${token}`
         }

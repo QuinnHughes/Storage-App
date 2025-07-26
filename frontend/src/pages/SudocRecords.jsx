@@ -1,6 +1,6 @@
 // src/pages/SudocRecords.jsx
 import React, { useState, useEffect } from "react";
-import axios from "axios";
+import apiFetch from '../api/client';
 
 export default function SudocRecords() {
   const [query, setQuery] = useState("");
@@ -27,19 +27,32 @@ export default function SudocRecords() {
     setError("");
     try {
       const token = localStorage.getItem("token");
-      const { data } = await axios.get("/catalog/sudoc/search/sudoc", {
-        params: { query, title: titleQuery, limit, page: newPage },
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      // build query string manually:
+      const qs = new URLSearchParams({
+        query,
+        title: titleQuery,
+        limit: limit.toString(),
+        page: newPage.toString(),
+      }).toString();
+
+      const res = await apiFetch(`/catalog/sudoc/search/sudoc?${qs}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || `Status ${res.status}`);
+      }
+
+      const data = await res.json();
       setResults(data);
       setPage(newPage);
     } catch (e) {
-      setError(e.response?.data?.detail || "Search failed");
+      setError(e.message);
     } finally {
-      setLoading(false);
+     setLoading(false);
     }
   };
-
   const handleCheckout = rec => {
     const saved = JSON.parse(localStorage.getItem("checkedOut") || "[]");
     if (!saved.find(r => r.id === rec.id)) {
