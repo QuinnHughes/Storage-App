@@ -191,6 +191,12 @@ export default function SudocEditor() {
                   >
                     Download
                   </button>
+                  <button
+                    onClick={() => handleRemove(selected.id)}
+                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition duration-150"
+                  >
+                    Remove
+                  </button>
                 </div>
               </div>
               <div className="mt-2 text-gray-600">
