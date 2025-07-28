@@ -23,7 +23,7 @@ def main(args):
     # locate scripts & data
     script_dir = os.path.dirname(__file__)
     parent_dir = os.path.abspath(os.path.join(script_dir, os.pardir))
-    default_rs = os.path.join(parent_dir, 'Record_Sets')
+    default_rs = os.path.join(parent_dir, 'Record_sets')
     repo_dir = os.path.abspath(args.repo) if args.repo else (
         default_rs if os.path.isdir(default_rs) else parent_dir
     )

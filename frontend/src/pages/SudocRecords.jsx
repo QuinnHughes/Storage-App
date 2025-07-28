@@ -35,7 +35,7 @@ export default function SudocRecords() {
         page: newPage.toString(),
       }).toString();
 
-      const res = await apiFetch(`/catalog/sudoc/search/sudoc?${qs}`, {
+      const res = await apiFetch(`/catalog/sudoc/search?${qs}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
