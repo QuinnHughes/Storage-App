@@ -40,6 +40,7 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
+    debug=True  # Enable debug mode
 )
 # CORS (restrict origins before production)
 origins = os.getenv("FRONTEND_URL", "http://localhost:3000").split(",")
