@@ -77,6 +77,23 @@ export function useSudocCarts() {
     }
   };
 
+  const removeFromCart = async (recordId) => {
+    if (!selectedCart) return;
+    try {
+      const res = await apiFetch(`/catalog/sudoc/cart/${selectedCart}/records/${recordId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`
+        }
+      });
+      if (!res.ok) throw new Error('Failed to remove from cart');
+      await loadCarts(); // Refresh carts to show updated items
+    } catch (err) {
+      console.error('Error removing from cart:', err);
+      throw err;
+    }
+  };
+
   const deleteCart = async (cartId) => {
     try {
       setLoading(true);
@@ -111,7 +128,8 @@ export function useSudocCarts() {
     selectedCart,
     setSelectedCart,
     createCart,
-    addToCart,  // Add this
+    addToCart,
+    removeFromCart,
     deleteCart,
     loading,
     error

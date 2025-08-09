@@ -168,43 +168,44 @@ export default function SudocEditor() {
     URL.revokeObjectURL(url);
   };
 
-  const handleSaveField = async (fieldIndex) => {
-    if (!selected || !editedFields[fieldIndex]) return;
+  // Update the handleSaveField function to connect to your existing backend endpoint
+  const handleSaveField = async (fieldIndex, updatedField) => {
+    if (!selectedId) return;
     
     setIsSaving(true);
     try {
-      const res = await apiFetch(`/catalog/sudoc/${selected.id}/field/${fieldIndex}`, {
+      const response = await apiFetch(`/catalog/sudoc/${selectedId}/field/${fieldIndex}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`
+          Authorization: `Bearer ${localStorage.getItem("token")}`
         },
-        body: JSON.stringify(editedFields[fieldIndex])
+        body: JSON.stringify(updatedField)
       });
 
-      if (!res.ok) {
-        const error = await res.text();
-        throw new Error(error || 'Failed to save changes');
+      if (!response.ok) {
+        throw new Error('Failed to save field');
       }
 
-      const updatedField = await res.json();
-
-      // Update local state with the returned field data
+      const savedField = await response.json();
+      
+      // Update the local state with the saved field
       setMarcFields(prev => ({
         ...prev,
-        [selected.id]: prev[selected.id].map((f, i) => 
-          i === fieldIndex ? updatedField : f
+        [selectedId]: prev[selectedId].map((field, index) => 
+          index === fieldIndex ? savedField : field
         )
       }));
+
+      // Clear editing state
       setEditingField(null);
-      setEditedFields(prev => {
-        const next = { ...prev };
-        delete next[fieldIndex];
-        return next;
-      });
-    } catch (err) {
-      console.error('Error saving field:', err);
-      alert(err.message || 'Failed to save changes');
+      setEditedFields({});
+      
+      console.log('Field saved successfully');
+      
+    } catch (error) {
+      console.error('Failed to save field:', error);
+      alert('Failed to save field. Please try again.');
     } finally {
       setIsSaving(false);
     }
@@ -541,11 +542,11 @@ export default function SudocEditor() {
                                   </td>
                                   <td className="px-4 py-3 text-right space-x-2">
                                     <button
-                                      onClick={() => handleSaveField(index)}
+                                      onClick={() => handleSaveField(index, editedFields[index] || field)}
                                       disabled={isSaving}
-                                      className="text-green-600 hover:text-green-800"
+                                      className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
                                     >
-                                      Save
+                                      {isSaving ? 'Saving...' : 'Save'}
                                     </button>
                                     <button
                                       onClick={() => {

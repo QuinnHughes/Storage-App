@@ -14,7 +14,7 @@ from schemas.sudoc import (
 )
 from core.auth import get_current_user, require_cataloger
 from db.session import get_db
-from db import crud
+from db import crud, models  # Add models import here
 from db.models import SudocCart
 
 from sqlalchemy.orm import Session
@@ -291,3 +291,20 @@ def add_marc_field(
         
     except Exception as e:
         raise HTTPException(500, f"Failed to add field: {str(e)}")
+
+@router.delete("/cart/{cart_id}/records/{record_id}")
+async def remove_from_cart(
+    cart_id: int,
+    record_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_cataloger)  # Use require_cataloger for consistency
+):
+    """Remove a record from a cart"""
+    try:
+        # Use the crud function instead of direct model access
+        crud.remove_from_cart(db, cart_id, record_id)
+        return {"message": "Item removed from cart successfully"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to remove item from cart: {str(e)}")

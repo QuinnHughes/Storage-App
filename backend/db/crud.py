@@ -408,3 +408,20 @@ def delete_cart(db: Session, cart_id: int):
     db.delete(cart)
     db.commit()
     return True
+
+def remove_from_cart(db: Session, cart_id: int, record_id: int):
+    """Remove a record from a cart"""
+    # Find the cart item
+    cart_item = db.query(models.SudocCartItem).filter(
+        models.SudocCartItem.cart_id == cart_id,
+        models.SudocCartItem.record_id == record_id
+    ).first()
+    
+    if not cart_item:
+        raise ValueError("Item not found in cart")
+    
+    # Remove the item
+    db.delete(cart_item)
+    db.commit()
+    
+    return True

@@ -101,19 +101,25 @@ class SudocCart(Base):
     name = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
-    # Relationships
+    # Relationship to cart items
     items = relationship("SudocCartItem", back_populates="cart", cascade="all, delete-orphan")
 
 class SudocCartItem(Base):
     __tablename__ = "sudoc_cart_items"
     
     id = Column(Integer, primary_key=True, index=True)
-    cart_id = Column(Integer, ForeignKey("sudoc_carts.id"))
-    record_id = Column(Integer, nullable=False)
+    cart_id = Column(Integer, ForeignKey("sudoc_carts.id"), nullable=False)
+    record_id = Column(Integer, nullable=False)  # Reference to sudoc record
     added_at = Column(DateTime(timezone=True), server_default=func.now())
     
-    # Relationships
+    # Relationship
     cart = relationship("SudocCart", back_populates="items")
+    
+    # Ensure unique cart_id + record_id combinations
+    __table_args__ = (
+        UniqueConstraint('cart_id', 'record_id', name='unique_cart_record'),
+        Index('ix_cart_items_cart_id', 'cart_id'),
+    )
 
 class SudocEditedRecord(Base):
     __tablename__ = "sudoc_edited_records"
