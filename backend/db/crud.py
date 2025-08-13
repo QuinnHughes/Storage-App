@@ -1,7 +1,8 @@
-from sqlalchemy.orm import Session
+from fastapi import HTTPException
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.dialects.postgresql import insert
 from typing import List, Optional 
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from . import models
 from .models import User
 from schemas.item import ItemCreate
@@ -345,3 +346,82 @@ def update_user(db: Session, user: User, data) -> User:
 def delete_user(db: Session, user: User) -> None:
     db.delete(user)
     db.commit()
+
+def create_sudoc_cart(db: Session, name: str) -> models.SudocCart:
+    cart = models.SudocCart(name=name)
+    db.add(cart)
+    db.commit()
+    db.refresh(cart)
+    return cart
+
+def get_carts(db: Session) -> List[models.SudocCart]:
+    return db.query(models.SudocCart)\
+             .options(joinedload(models.SudocCart.items))\
+             .order_by(models.SudocCart.created_at.desc())\
+             .all()
+
+def add_to_cart(db: Session, cart_id: int, record_id: int) -> models.SudocCartItem:
+    item = models.SudocCartItem(cart_id=cart_id, record_id=record_id)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+def save_edited_record(db: Session, record_id: int, marc_data: bytes, user_id: int):
+    """Save an edited MARC record"""
+    # Check if an edited version already exists
+    existing = db.query(models.SudocEditedRecord).filter(
+        models.SudocEditedRecord.record_id == record_id
+    ).first()
+    
+    if existing:
+        # Update existing edited record
+        existing.marc_data = marc_data
+        existing.edited_by = user_id
+        existing.edited_at = func.now()
+    else:
+        # Create new edited record
+        edited_record = models.SudocEditedRecord(
+            record_id=record_id,
+            marc_data=marc_data,
+            edited_by=user_id
+        )
+        db.add(edited_record)
+    
+    db.commit()
+
+def get_edited_record(db: Session, record_id: int):
+    """Get edited version of a record if it exists"""
+    return db.query(models.SudocEditedRecord).filter(
+        models.SudocEditedRecord.record_id == record_id
+    ).first()
+
+def delete_cart(db: Session, cart_id: int):
+    cart = db.query(models.SudocCart).filter(models.SudocCart.id == cart_id).first()
+    if not cart:
+        raise HTTPException(status_code=404, detail="Cart not found")
+        
+    # Delete all items in the cart
+    db.query(models.SudocCartItem).filter(models.SudocCartItem.cart_id == cart_id).delete()
+    
+    # Delete the cart itself
+    db.delete(cart)
+    db.commit()
+    return True
+
+def remove_from_cart(db: Session, cart_id: int, record_id: int):
+    """Remove a record from a cart"""
+    # Find the cart item
+    cart_item = db.query(models.SudocCartItem).filter(
+        models.SudocCartItem.cart_id == cart_id,
+        models.SudocCartItem.record_id == record_id
+    ).first()
+    
+    if not cart_item:
+        raise ValueError("Item not found in cart")
+    
+    # Remove the item
+    db.delete(cart_item)
+    db.commit()
+    
+    return True

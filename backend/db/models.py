@@ -1,6 +1,6 @@
 # backend/db/models.py
 
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, UniqueConstraint, Index, LargeBinary
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import datetime
@@ -93,3 +93,44 @@ class UserLog(Base):
     user = relationship("User", back_populates="logs")
 
 User.logs = relationship("UserLog", back_populates="user", cascade="all, delete-orphan")
+
+class SudocCart(Base):
+    __tablename__ = "sudoc_carts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationship to cart items
+    items = relationship("SudocCartItem", back_populates="cart", cascade="all, delete-orphan")
+
+class SudocCartItem(Base):
+    __tablename__ = "sudoc_cart_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    cart_id = Column(Integer, ForeignKey("sudoc_carts.id"), nullable=False)
+    record_id = Column(Integer, nullable=False)  # Reference to sudoc record
+    added_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationship
+    cart = relationship("SudocCart", back_populates="items")
+    
+    # Ensure unique cart_id + record_id combinations
+    __table_args__ = (
+        UniqueConstraint('cart_id', 'record_id', name='unique_cart_record'),
+        Index('ix_cart_items_cart_id', 'cart_id'),
+    )
+
+class SudocEditedRecord(Base):
+    __tablename__ = "sudoc_edited_records"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    record_id = Column(Integer, nullable=False)  # Original record ID
+    marc_data = Column(LargeBinary, nullable=False)   # Changed from String to LargeBinary for binary MARC data
+    edited_at = Column(DateTime(timezone=True), server_default=func.now())
+    edited_by = Column(Integer, ForeignKey("users.id"))
+    
+    # Index to quickly find edited versions
+    __table_args__ = (
+        Index('ix_edited_record_id', 'record_id'),
+    )
