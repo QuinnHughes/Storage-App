@@ -130,14 +130,15 @@ def get_marc_by_id(record_id: int, include_edits: bool = True):
     return _get_original_marc_by_id(record_id)
 
 def _get_original_marc_by_id(record_id: int):
-    """Original implementation - get MARC from zip files"""
+    """Get MARC record using stored position from index"""
     print(f"Looking for record ID: {record_id}")
     
     conn = _connect()
+    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
-    # Get the zip file for this record
-    cur.execute("SELECT zip_file FROM records WHERE rowid = ?", (record_id,))
+    # Get the zip file and exact position for this record
+    cur.execute("SELECT zip_file, position_in_zip FROM records WHERE id = ?", (record_id,))
     row = cur.fetchone()
     
     if not row:
@@ -145,17 +146,11 @@ def _get_original_marc_by_id(record_id: int):
         conn.close()
         return None
         
-    zip_filename = row[0]
-    print(f"Found zip file: {zip_filename}")
+    zip_filename = row['zip_file']
+    position_in_zip = row['position_in_zip']
     
-    # Get the minimum rowid for this zip file to calculate offset
-    cur.execute("SELECT MIN(rowid) FROM records WHERE zip_file = ?", (zip_filename,))
-    min_rowid = cur.fetchone()[0]
+    print(f"[SUDOC] id={record_id} -> zip={zip_filename}, pos_in_zip={position_in_zip}")
     conn.close()
-    
-    # Calculate the position in the MARC file (0-based)
-    record_position = record_id - min_rowid
-    print(f"Record {record_id} should be at position {record_position} (min_rowid: {min_rowid})")
     
     zip_path = os.path.join(RECORDS_DIR, zip_filename)
     
@@ -165,43 +160,28 @@ def _get_original_marc_by_id(record_id: int):
     
     try:
         with zipfile.ZipFile(zip_path, 'r') as zf:
-            # Get the first .mrc file in the ZIP
-            marc_files = [name for name in zf.namelist() if name.endswith('.mrc')]
+            marc_files = [f for f in zf.namelist() if f.endswith('.mrc')]
             if not marc_files:
-                print(f"No .mrc files found in {zip_filename}")
+                print(f"No MARC files found in {zip_filename}")
                 return None
             
-            marc_file = marc_files[0]
-            print(f"Reading MARC file: {marc_file}")
-            
-            with zf.open(marc_file) as f:
-                # Don't load entire file - read records one by one until we find the right position
-                reader = MARCReader(f)
-                current_position = 0
+            marc_filename = marc_files[0]
+            with zf.open(marc_filename) as marc_file:
+                reader = MARCReader(marc_file, to_unicode=True, force_utf8=True, utf8_handling="replace")
                 
-                try:
-                    for record in reader:
-                        if current_position == record_position:
-                            print(f"Found record at position {record_position}")
-                            return record
-                        current_position += 1
-                        
-                        # Safety check - don't read too many records
-                        if current_position > record_position + 100:
-                            print(f"Went too far looking for position {record_position}, stopping at {current_position}")
-                            break
-                    
-                    print(f"Could not find record at position {record_position}, only found {current_position} records")
-                    return None
-                    
-                except Exception as marc_error:
-                    print(f"Error reading MARC records: {marc_error}")
-                    return None
-            
+                # Read to the exact stored position
+                current_position = 0
+                for record in reader:
+                    if current_position == position_in_zip:
+                        print(f"Found record at stored position {position_in_zip} in {zip_filename}")
+                        return record
+                    current_position += 1
+                
+                print(f"Record {record_id} not found at stored position {position_in_zip} in {zip_filename}")
+                return None
+                
     except Exception as e:
-        print(f"Error reading MARC record {record_id} from {zip_path}: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error reading MARC file: {e}")
         return None
 
 def save_marc_record(record_id: int, record: Record) -> bool:
