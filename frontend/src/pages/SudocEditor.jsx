@@ -3,6 +3,638 @@ import React, { useState, useEffect, useCallback } from "react";
 import apiFetch from '../api/client';
 import { useSudocCarts } from '../hooks/useSudocCarts';
 
+// Boundwith Modal Component
+function BoundwithModal({ isOpen, onClose, currentRecord }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [selectedRecords, setSelectedRecords] = useState([]);
+  const [mainRecord, setMainRecord] = useState(currentRecord);
+  const [loading, setLoading] = useState(false);
+  const [createMode, setCreateMode] = useState("existing"); // "existing" or "new-host"
+  
+  // Host record form fields
+  const [hostTitle, setHostTitle] = useState("");
+  const [hostSeries, setHostSeries] = useState("");
+  const [hostPublisher, setHostPublisher] = useState("");
+  const [hostSeriesNumber, setHostSeriesNumber] = useState("");
+  const [hostSubjects, setHostSubjects] = useState([]);
+  const [hostYear, setHostYear] = useState(new Date().getFullYear().toString());
+  
+  // Add current record to selected by default
+  useEffect(() => {
+    if (currentRecord && !selectedRecords.find(r => r.id === currentRecord.id)) {
+      setSelectedRecords([currentRecord]);
+    }
+  }, [currentRecord]);
+  
+  // Extract series information from selected records
+  useEffect(() => {
+    if (createMode === "new-host" && selectedRecords.length > 0 && selectedRecords[0].fields) {
+      // Try to extract series info from the first selected record
+      const fields = selectedRecords[0].fields;
+      
+      // Look for committee/series in 088 field
+      const field088 = fields.find(f => f.tag === '088');
+      if (field088) {
+        const subfields = field088.subfields || [];
+        const value = subfields.find(sf => sf.code === 'a')?.value;
+        if (value) setHostSeries(value);
+      }
+      
+      // Look for publisher in 260 field
+      const field260 = fields.find(f => f.tag === '260');
+      if (field260) {
+        const subfields = field260.subfields || [];
+        const value = subfields.find(sf => sf.code === 'b')?.value;
+        if (value) setHostPublisher(value);
+      }
+      
+      // Look for series in 490 field
+      const field490 = fields.find(f => f.tag === '490');
+      if (field490) {
+        const subfields = field490.subfields || [];
+        const seriesTitle = subfields.find(sf => sf.code === 'a')?.value;
+        const seriesNumber = subfields.find(sf => sf.code === 'v')?.value;
+        if (seriesTitle) setHostSeries(seriesTitle);
+        if (seriesNumber) setHostSeriesNumber(seriesNumber);
+      }
+      
+      // Set a default title based on 088 or 490 field
+      if (field088 || field490) {
+        const seriesValue = field088?.subfields?.find(sf => sf.code === 'a')?.value || 
+                            field490?.subfields?.find(sf => sf.code === 'a')?.value || 
+                            "Government Document Series";
+        setHostTitle(`${seriesValue} Collection`);
+      }
+    }
+  }, [createMode, selectedRecords]);
+
+  // Enhanced useEffect to extract MARC data from selected records
+  useEffect(() => {
+    if (createMode === "new-host" && selectedRecords.length > 0) {
+      // First, fetch full MARC records for better data extraction
+      const fetchMarcData = async () => {
+        try {
+          const recordPromises = selectedRecords.map(async record => {
+            if (!record.fields) {
+              const token = localStorage.getItem("token");
+              const res = await apiFetch(`/catalog/sudoc/${record.id}`, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {}
+              });
+              if (res.ok) {
+                const fields = await res.json();
+                return { ...record, fields };
+              }
+            }
+            return record;
+          });
+          
+          const recordsWithFields = await Promise.all(recordPromises);
+          analyzeRecordsForHostData(recordsWithFields);
+        } catch (error) {
+          console.error("Error fetching MARC data:", error);
+        }
+      };
+      
+      fetchMarcData();
+    }
+  }, [createMode, selectedRecords]);
+
+  // New function to analyze MARC records and extract common data
+  const analyzeRecordsForHostData = (records) => {
+    // Initialize data collections
+    const seriesData = [];
+    const publisherData = [];
+    const committeeData = [];
+    const subjects = [];
+    const sudocPrefixes = [];
+    
+    // Helper function to safely extract subfield values
+    const getSubfieldValue = (field, code) => {
+      const subfields = field.subfields;
+      
+      // Case 1: subfields is an array of objects with code and value properties
+      if (Array.isArray(subfields)) {
+        const subfield = subfields.find(sf => {
+          return typeof sf === 'object' && sf.code === code;
+        });
+        return subfield?.value;
+      }
+      
+      // Case 2: subfields is an object with codes as keys
+      if (typeof subfields === 'object' && subfields !== null) {
+        return subfields[code];
+      }
+      
+      return null;
+    };
+    
+    // Extract data from each record
+    records.forEach(record => {
+      if (!record.fields) return;
+      
+      // Look for series in 490/830 fields
+      record.fields.filter(f => f.tag === '490' || f.tag === '830').forEach(field => {
+        const seriesTitle = getSubfieldValue(field, 'a');
+        const seriesNumber = getSubfieldValue(field, 'v');
+        
+        if (seriesTitle) {
+          seriesData.push({ title: seriesTitle, number: seriesNumber });
+        }
+      });
+      
+      // Extract publisher from 260/264 fields
+      record.fields.filter(f => f.tag === '260' || f.tag === '264').forEach(field => {
+        const publisher = getSubfieldValue(field, 'b');
+        if (publisher) publisherData.push(publisher);
+      });
+      
+      // Extract committee/agency info from 110/710 fields
+      record.fields.filter(f => f.tag === '110' || f.tag === '710').forEach(field => {
+        // Try to concatenate subfields for committee name
+        let committee = "";
+        
+        if (Array.isArray(field.subfields)) {
+          committee = field.subfields
+            .filter(sf => typeof sf === 'object')
+            .map(sf => sf.value)
+            .join(' ');
+        } else if (typeof field.subfields === 'object' && field.subfields !== null) {
+          committee = Object.values(field.subfields).join(' ');
+        }
+        
+        if (committee && committee.toLowerCase().includes('committee')) {
+          committeeData.push(committee);
+        }
+      });
+      
+      // Extract SuDoc classification for common prefix
+      record.fields.filter(f => f.tag === '086' && f.indicator1 === '0').forEach(field => {
+        const sudoc = getSubfieldValue(field, 'a');
+        
+        if (sudoc) {
+          // Get prefix (e.g., "Y 4.P 93/2:" from "Y 4.P 93/2:S.HRG.106-1095")
+          const match = sudoc.match(/^([A-Z]\s*\d+\.[A-Z]\s*\d+\/?\d*:)/);
+          if (match) sudocPrefixes.push(match[1]);
+        }
+      });
+      
+      // Extract subjects from 6XX fields
+      record.fields.filter(f => f.tag.startsWith('6')).forEach(field => {
+        // Try to concatenate subfields for subject
+        let subject = "";
+        
+        if (Array.isArray(field.subfields)) {
+          subject = field.subfields
+            .filter(sf => typeof sf === 'object')
+            .map(sf => sf.value)
+            .join(' -- ');
+        } else if (typeof field.subfields === 'object' && field.subfields !== null) {
+          subject = Object.values(field.subfields).join(' -- ');
+        }
+        
+        if (subject) subjects.push(subject);
+      });
+    });
+    
+    // Find most common series
+    let commonSeries = null;
+    if (seriesData.length > 0) {
+      // Group by title
+      const seriesGroups = seriesData.reduce((acc, item) => {
+        acc[item.title] = acc[item.title] || { count: 0, numbers: [] };
+        acc[item.title].count++;
+        if (item.number) acc[item.title].numbers.push(item.number);
+        return acc;
+      }, {});
+      
+      // Find most common
+      let maxCount = 0;
+      let maxSeries = null;
+      Object.entries(seriesGroups).forEach(([title, data]) => {
+        if (data.count > maxCount) {
+          maxCount = data.count;
+          maxSeries = { title, numbers: data.numbers };
+        }
+      });
+      
+      commonSeries = maxSeries;
+    }
+    
+    // Find most common publisher
+    let commonPublisher = null;
+    if (publisherData.length > 0) {
+      const publisherCounts = publisherData.reduce((acc, pub) => {
+        acc[pub] = (acc[pub] || 0) + 1;
+        return acc;
+      }, {});
+      
+      commonPublisher = Object.entries(publisherCounts)
+        .sort((a, b) => b[1] - a[1])[0][0];
+    }
+    
+    // Find most common committee
+    let commonCommittee = null;
+    if (committeeData.length > 0) {
+      const committeeCounts = committeeData.reduce((acc, com) => {
+        acc[com] = (acc[com] || 0) + 1;
+        return acc;
+      }, {});
+      
+      commonCommittee = Object.entries(committeeCounts)
+        .sort((a, b) => b[1] - a[1])[0][0];
+    }
+    
+    // Generate a title based on extracted information
+    let suggestedTitle = "";
+    
+    if (commonCommittee) {
+      // Use committee name as the basis for title
+      suggestedTitle = `${commonCommittee} Collection`;
+    } else if (commonSeries) {
+      // Use series title
+      suggestedTitle = `${commonSeries.title} Collection`;
+    } else if (sudocPrefixes.length > 0) {
+      // Try to create a title from SuDoc pattern
+      const sudocCounts = sudocPrefixes.reduce((acc, prefix) => {
+        acc[prefix] = (acc[prefix] || 0) + 1;
+        return acc;
+      }, {});
+      
+      const commonPrefix = Object.entries(sudocCounts)
+        .sort((a, b) => b[1] - a[1])[0][0];
+        
+      // Translate common government document prefixes to readable titles
+      if (commonPrefix.startsWith("Y 4.")) {
+        suggestedTitle = "Congressional Committee Publications";
+      } else if (commonPrefix.startsWith("Y 1.")) {
+        suggestedTitle = "Congressional Documents";
+      } else {
+        suggestedTitle = "Government Document Collection";
+      }
+    } else {
+      suggestedTitle = "Bound Documents Collection";
+    }
+    
+    // Extract common subject themes (for potential use in title/description)
+    const commonSubjects = [];
+    if (subjects.length > 0) {
+      // Get all subject components
+      const subjectParts = subjects.flatMap(s => s.split(' -- '));
+      
+      // Count frequencies
+      const subjectCounts = subjectParts.reduce((acc, part) => {
+        acc[part] = (acc[part] || 0) + 1;
+        return acc;
+      }, {});
+      
+      // Get subjects that appear in at least half the records
+      Object.entries(subjectCounts)
+        .filter(([_, count]) => count >= records.length / 2)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .forEach(([subject]) => commonSubjects.push(subject));
+    }
+    
+    // If we have common subjects, incorporate into title
+    if (commonSubjects.length > 0 && !suggestedTitle.includes(commonSubjects[0])) {
+      suggestedTitle = `${commonSubjects[0]} - ${suggestedTitle}`;
+    }
+    
+    // Update form fields with extracted data
+    setHostTitle(suggestedTitle);
+    setHostSeries(commonSeries?.title || "");
+    setHostSeriesNumber(commonSeries?.numbers?.[0] || "");
+    setHostPublisher(commonPublisher || "");
+    
+    // Additional metadata for enhanced host record
+    if (commonSubjects.length > 0) {
+      setHostSubjects(commonSubjects);
+    }
+  };
+
+  // Search for records to add to boundwith
+  const handleSearch = async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/catalog/sudoc/search?query=${searchQuery}`);
+      const data = await res.json();
+      setSearchResults(data.filter(r => r.id !== currentRecord.id));
+    } catch (error) {
+      console.error("Error searching records:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Toggle record selection
+  const toggleRecordSelection = (record) => {
+    setSelectedRecords(prev => 
+      prev.find(r => r.id === record.id)
+        ? prev.filter(r => r.id !== record.id)
+        : [...prev, record]
+    );
+  };
+
+  // Change which record is the "main" record
+  const setAsMainRecord = (record) => {
+    setMainRecord(record);
+  };
+
+  // Create the boundwith relationships
+  const createBoundwith = async () => {
+    if (selectedRecords.length < 2 && createMode === "existing") {
+      alert("You need at least 2 records to create a boundwith");
+      return;
+    }
+
+    if (createMode === "new-host" && (!hostTitle || selectedRecords.length === 0)) {
+      alert("Please enter a title for the host record and select at least one record");
+      return;
+    }
+
+    try {
+      // Call API to create boundwith relationship
+      const res = await apiFetch('/catalog/sudoc/boundwith', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem("token")}`
+        },
+        body: JSON.stringify({
+          creation_mode: createMode,
+          main_record_id: createMode === "existing" ? mainRecord.id : null,
+          related_record_ids: selectedRecords.map(r => r.id),
+          host_record: createMode === "new-host" ? {
+            title: hostTitle,
+            series: hostSeries,
+            publisher: hostPublisher,
+            series_number: hostSeriesNumber,
+            year: hostYear,
+            subjects: hostSubjects
+          } : null
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        alert(`Boundwith relationship created successfully! ${data.message || ''}`);
+        onClose();
+      } else {
+        const error = await res.text();
+        throw new Error(error || "Failed to create boundwith");
+      }
+    } catch (error) {
+      console.error("Error creating boundwith:", error);
+      alert("Failed to create boundwith relationship: " + error.message);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4 border-b pb-4">
+          <h3 className="text-xl font-semibold">Create Boundwith Relationship</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+        </div>
+        
+        {/* Boundwith type selection */}
+        <div className="mb-6 bg-gray-50 p-4 rounded-lg">
+          <h4 className="font-medium mb-3">Boundwith Creation Method</h4>
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div 
+              onClick={() => setCreateMode("existing")}
+              className={`border p-4 rounded-lg flex-1 cursor-pointer ${
+                createMode === "existing" ? "border-blue-500 bg-blue-50" : "border-gray-300"
+              }`}
+            >
+              <div className="font-medium mb-1">Use Existing Record as Host</div>
+              <p className="text-sm text-gray-600">
+                Select one record to be the "main" record, with all others bound to it
+              </p>
+            </div>
+            <div 
+              onClick={() => setCreateMode("new-host")} 
+              className={`border p-4 rounded-lg flex-1 cursor-pointer ${
+                createMode === "new-host" ? "border-yellow-500 bg-yellow-50" : "border-gray-300"
+              }`}
+            >
+              <div className="font-medium mb-1">Create Series-Level Host Record</div>
+              <p className="text-sm text-gray-600">
+                Create a new record at the series level (recommended for government documents)
+              </p>
+            </div>
+          </div>
+        </div>
+        
+        {/* New host record form - only shown in new-host mode */}
+        {createMode === "new-host" && (
+          <div className="mb-6 border p-4 rounded-lg">
+            <h4 className="font-medium mb-3">Series-Level Host Record Details</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Host Record Title</label>
+                <input
+                  type="text"
+                  value={hostTitle}
+                  onChange={(e) => setHostTitle(e.target.value)}
+                  className="w-full border rounded px-3 py-2"
+                  placeholder="Collection Title"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Series</label>
+                <input
+                  type="text"
+                  value={hostSeries}
+                  onChange={(e) => setHostSeries(e.target.value)}
+                  className="w-full border rounded px-3 py-2"
+                  placeholder="Series Title or Committee Name"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Publisher</label>
+                <input
+                  type="text"
+                  value={hostPublisher}
+                  onChange={(e) => setHostPublisher(e.target.value)}
+                  className="w-full border rounded px-3 py-2"
+                  placeholder="Publisher"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Series Number</label>
+                <input
+                  type="text"
+                  value={hostSeriesNumber}
+                  onChange={(e) => setHostSeriesNumber(e.target.value)}
+                  className="w-full border rounded px-3 py-2"
+                  placeholder="Series Number"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Publication Year</label>
+                <input
+                  type="text"
+                  value={hostYear}
+                  onChange={(e) => setHostYear(e.target.value)}
+                  className="w-full border rounded px-3 py-2"
+                  placeholder="Publication Year"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Common Subjects</label>
+                <div className="border rounded px-3 py-2 bg-gray-50 min-h-[38px]">
+                  {hostSubjects.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {hostSubjects.map((subject, i) => (
+                        <span key={i} className="bg-blue-100 text-blue-800 px-2 py-1 text-xs rounded">
+                          {subject}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-gray-400">No common subjects found</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Search section */}
+        <div className="mb-6">
+          <h4 className="font-medium mb-2">Find Records to Include</h4>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="flex-1 border rounded px-3 py-2"
+              placeholder="Search by SuDoc number or title..."
+            />
+            <button
+              onClick={handleSearch}
+              disabled={loading}
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:bg-blue-300"
+            >
+              {loading ? "Searching..." : "Search"}
+            </button>
+          </div>
+        </div>
+        
+        {/* Search results */}
+        {searchResults.length > 0 && (
+          <div className="mb-6">
+            <h4 className="font-medium mb-2">Search Results</h4>
+            <div className="max-h-48 overflow-y-auto border rounded">
+              {searchResults.map(record => (
+                <div 
+                  key={`result-${record.id}`}
+                  className="p-2 border-b hover:bg-gray-50 flex justify-between"
+                >
+                  <div>
+                    <div className="font-medium">{record.title}</div>
+                    <div className="text-sm text-gray-600">SuDoc: {record.sudoc}</div>
+                  </div>
+                  <button
+                    onClick={() => toggleRecordSelection(record)}
+                    className={`px-3 py-1 rounded text-sm ${
+                      selectedRecords.find(r => r.id === record.id)
+                        ? "bg-red-500 text-white hover:bg-red-600"
+                        : "bg-green-500 text-white hover:bg-green-600"
+                    }`}
+                  >
+                    {selectedRecords.find(r => r.id === record.id) ? "Remove" : "Add"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {/* Selected records */}
+        <div className="mb-6">
+          <h4 className="font-medium mb-2">Selected Records ({selectedRecords.length})</h4>
+          {createMode === "existing" && (
+            <p className="text-sm mb-2 text-gray-600">
+              Select which record should be the main record (the physical item all others are bound with).
+            </p>
+          )}
+          {createMode === "new-host" && (
+            <p className="text-sm mb-2 text-gray-600">
+              These records will be linked to the new host record.
+            </p>
+          )}
+          <div className="border rounded divide-y">
+            {selectedRecords.map(record => (
+              <div 
+                key={`selected-${record.id}`}
+                className={`p-3 flex justify-between items-center ${
+                  createMode === "existing" && mainRecord?.id === record.id ? "bg-yellow-50" : ""
+                }`}
+              >
+                <div>
+                  <div className="font-medium">{record.title}</div>
+                  <div className="text-sm text-gray-600">
+                    SuDoc: {record.sudoc} | OCLC: {record.oclc || "—"}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  {createMode === "existing" && (
+                    mainRecord?.id === record.id ? (
+                      <span className="bg-yellow-500 text-white px-3 py-1 rounded text-sm">
+                        Main Record
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => setAsMainRecord(record)}
+                        className="bg-yellow-500 text-white px-3 py-1 rounded text-sm hover:bg-yellow-600"
+                      >
+                        Set as Main
+                      </button>
+                    )
+                  )}
+                  <button
+                    onClick={() => toggleRecordSelection(record)}
+                    className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+            
+            {selectedRecords.length === 0 && (
+              <p className="p-3 italic text-gray-500">No records selected</p>
+            )}
+          </div>
+        </div>
+        
+        {/* Action buttons */}
+        <div className="flex justify-end space-x-3 pt-4 border-t">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 border rounded hover:bg-gray-100"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={createBoundwith}
+            disabled={(createMode === "existing" && (selectedRecords.length < 2 || !mainRecord)) || 
+                     (createMode === "new-host" && (selectedRecords.length === 0 || !hostTitle))}
+            className="bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-2 rounded font-medium disabled:bg-gray-300"
+          >
+            Create Boundwith
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SudocEditor() {
   const [records, setRecords] = useState([]);             // checked-out items
   const [selectedId, setSelectedId] = useState(null);     // currently viewed
@@ -19,6 +651,7 @@ export default function SudocEditor() {
     c: '',    // call number
     n: ''     // enumeration/chronology
   });
+  const [showBoundwithModal, setShowBoundwithModal] = useState(false);
 
   const { 
     carts, 
@@ -296,6 +929,17 @@ export default function SudocEditor() {
     setSelectedId(saved[0]?.id || null);
   };
 
+  // Helper function to check if a record is part of a boundwith relationship
+  const isBoundwith = useCallback((recordId) => {
+    if (!marcFields[recordId]) return false;
+    
+    return marcFields[recordId].some(field => 
+      field.tag === '501' || // With note
+      field.tag === '773' || // Host item entry
+      field.tag === '774'    // Constituent unit entry
+    );
+  }, [marcFields]);
+
   // Cart Selector Component
   const CartSelector = () => (
     <div className="bg-white rounded-lg shadow p-4 mb-6">
@@ -384,8 +1028,13 @@ export default function SudocEditor() {
                       : "hover:bg-gray-50 text-gray-700"
                   }`}
                 >
-                  <div className="text-sm leading-tight">
+                  <div className="text-sm leading-tight flex items-center gap-2">
                     {formatItemDisplay(rec)}
+                    {isBoundwith(rec.id) && (
+                      <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded-full text-xs font-medium">
+                        Boundwith
+                      </span>
+                    )}
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
                     OCLC: {rec.oclc || "—"}
@@ -447,12 +1096,20 @@ export default function SudocEditor() {
                     <h3 className="text-lg font-bold text-gray-800">
                       Local MARC Fields
                     </h3>
-                    <button
-                      onClick={() => setShowAddField(true)}
-                      className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition duration-150"
-                    >
-                      + Add 945 Field
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setShowAddField(true)}
+                        className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition duration-150"
+                      >
+                        + Add 945 Field
+                      </button>
+                      <button
+                        onClick={() => setShowBoundwithModal(true)}
+                        className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition duration-150"
+                      >
+                        + Create Boundwith
+                      </button>
+                    </div>
                   </div>
                   
                   {isLoading ? (
@@ -691,6 +1348,15 @@ export default function SudocEditor() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Boundwith Modal */}
+      {showBoundwithModal && (
+        <BoundwithModal 
+          isOpen={showBoundwithModal}
+          onClose={() => setShowBoundwithModal(false)}
+          currentRecord={selected}
+        />
       )}
     </div>
   );

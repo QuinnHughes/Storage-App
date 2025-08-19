@@ -8,6 +8,8 @@ import sqlite3
 import os
 import zipfile
 from io import BytesIO
+from datetime import datetime
+from pymarc import Field, Record
 
 from core.sudoc import search_records, get_marc_by_id, get_record_fields
 from schemas.sudoc import (
@@ -23,7 +25,7 @@ from db.models import SudocCart, SudocCartItem
 
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
-from pymarc import MARCWriter, Record, MARCReader
+from pymarc import MARCWriter, Record, MARCReader, Field
 
 router = APIRouter()
 
@@ -34,6 +36,22 @@ RECORDS_DIR = os.path.join(BASE_DIR, "Record_sets")
 
 class ExportRequest(BaseModel):
     record_ids: List[int]
+
+class HostRecordData(BaseModel):
+    """Data for creating a new host record"""
+    title: str
+    series: Optional[str] = None
+    publisher: Optional[str] = None
+    series_number: Optional[str] = None
+    year: Optional[str] = None
+    subjects: Optional[List[str]] = None
+
+class BoundwithRequest(BaseModel):
+    """Request model for creating boundwith relationships"""
+    creation_mode: str  # "existing" or "new-host"
+    main_record_id: Optional[int] = None
+    related_record_ids: List[int]
+    host_record: Optional[HostRecordData] = None
 
 @router.get("/search", response_model=List[SudocSummary])
 def search_sudoc(
@@ -307,3 +325,435 @@ def export_sudoc_records(body: ExportRequest = Body(...)):
         media_type="application/marc",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+@router.post("/boundwith")
+async def create_boundwith(
+    request: BoundwithRequest,
+    current_user = Depends(require_cataloger),
+    db: Session = Depends(get_db)
+):
+    """Create boundwith relationships between records"""
+    # Validate the creation mode
+    if request.creation_mode not in ["existing", "new-host"]:
+        raise HTTPException(status_code=400, detail="Invalid creation mode")
+    
+    # Existing mode: use an existing record as the main record
+    if request.creation_mode == "existing":
+        if not request.main_record_id:
+            raise HTTPException(status_code=400, detail="Main record ID is required for existing mode")
+        
+        main_id = request.main_record_id
+        related_ids = [id for id in request.related_record_ids if id != main_id]
+        
+        # Validate that all records exist
+        all_ids = [main_id] + related_ids
+        for record_id in all_ids:
+            if not get_marc_by_id(record_id):
+                raise HTTPException(status_code=404, detail=f"Record {record_id} not found")
+        
+        # Get the main record
+        main_record = get_marc_by_id(main_id)
+        
+        # Extract main record details
+        main_title = get_title_from_record(main_record)
+        main_control_number = get_control_number(main_record)
+        main_oclc = get_oclc_number(main_record)
+        
+        # Update the main record with 501 "With" notes and 774 fields
+        for related_id in related_ids:
+            related_record = get_marc_by_id(related_id)
+            if related_record:
+                # Extract related record details
+                related_title = get_title_from_record(related_record)
+                related_oclc = get_oclc_number(related_record)
+                related_control = get_control_number(related_record)
+                
+                # Add a 501 "With" note to the main record
+                main_record.add_field(
+                    Field(
+                        tag='501',
+                        indicators=[' ', ' '],
+                        subfields=['a', f"With: {related_title}"]
+                    )
+                )
+                
+                # Add a 774 field (constituent unit entry) to the main record
+                main_record.add_field(
+                    Field(
+                        tag='774',
+                        indicators=['0', ' '],
+                        subfields=[
+                            't', related_title,
+                            'w', related_oclc or "",
+                            'o', related_control or ""
+                        ]
+                    )
+                )
+        
+        # Save the updated main record
+        marc_data = main_record.as_marc()
+        crud.save_edited_record(db, main_id, marc_data, current_user.id)
+        
+        # Update each related record with a 773 field pointing to the main record
+        for related_id in related_ids:
+            related_record = get_marc_by_id(related_id)
+            if related_record:
+                # Add a 773 field (host item entry) to each related record
+                related_record.add_field(
+                    Field(
+                        tag='773',
+                        indicators=['0', ' '],
+                        subfields=[
+                            't', main_title,
+                            'w', main_oclc or "",
+                            'o', main_control_number or ""
+                        ]
+                    )
+                )
+                
+                # Save the updated related record
+                marc_data = related_record.as_marc()
+                crud.save_edited_record(db, related_id, marc_data, current_user.id)
+        
+        return {
+            "status": "success", 
+            "message": f"Created boundwith relationship between {len(all_ids)} records"
+        }
+        
+    # New host mode: create a new host record
+    else:  # request.creation_mode == "new-host"
+        if not request.host_record or not request.host_record.title:
+            raise HTTPException(status_code=400, detail="Host record details required")
+        
+        related_ids = request.related_record_ids
+        
+        # Validate that all records exist
+        for record_id in related_ids:
+            if not get_marc_by_id(record_id):
+                raise HTTPException(status_code=404, detail=f"Record {record_id} not found")
+        
+        # Create a new host record
+        host_record = create_government_series_host_record(
+            title=request.host_record.title,
+            series=request.host_record.series,
+            publisher=request.host_record.publisher,
+            series_number=request.host_record.series_number,
+            year=request.host_record.year if hasattr(request.host_record, "year") else None,
+            subjects=request.host_record.subjects if hasattr(request.host_record, "subjects") else None
+        )
+        
+        # Save the new host record to the database to get an ID
+        host_marc_data = host_record.as_marc()
+        host_id = crud.create_new_marc_record(db, host_marc_data, current_user.id)
+        
+        # Extract host record details
+        host_title = get_title_from_record(host_record)
+        host_control_number = get_control_number(host_record)
+        host_oclc = get_oclc_number(host_record)
+        
+        # Update the host record with 501 and 774 fields for each related record
+        host_record = get_marc_by_id(host_id)  # Get the newly created record
+        
+        for related_id in related_ids:
+            related_record = get_marc_by_id(related_id)
+            if related_record:
+                # Extract related record details
+                related_title = get_title_from_record(related_record)
+                related_oclc = get_oclc_number(related_record)
+                related_control = get_control_number(related_record)
+                
+                # Add a 501 "With" note to the host record
+                host_record.add_field(
+                    Field(
+                        tag='501',
+                        indicators=[' ', ' '],
+                        subfields=['a', f"With: {related_title}"]
+                    )
+                )
+                
+                # Add a 774 field (constituent unit entry) to the host record
+                host_record.add_field(
+                    Field(
+                        tag='774',
+                        indicators=['0', ' '],
+                        subfields=[
+                            't', related_title,
+                            'w', related_oclc or "",
+                            'o', related_control or ""
+                        ]
+                    )
+                )
+                
+                # Add a 773 field (host item entry) to the related record
+                related_record.add_field(
+                    Field(
+                        tag='773',
+                        indicators=['0', ' '],
+                        subfields=[
+                            't', host_title,
+                            'w', host_oclc or "",
+                            'o', host_control_number or ""
+                        ]
+                    )
+                )
+                
+                # Save the updated related record
+                marc_data = related_record.as_marc()
+                crud.save_edited_record(db, related_id, marc_data, current_user.id)
+        
+        # Save the updated host record
+        marc_data = host_record.as_marc()
+        crud.save_edited_record(db, host_id, marc_data, current_user.id)
+        
+        return {
+            "status": "success",
+            "message": f"Created new host record ({host_id}) with {len(related_ids)} constituent parts",
+            "host_record_id": host_id
+        }
+
+# Helper functions for creating a government series host record
+def create_government_series_host_record(
+    title: str,
+    series: Optional[str] = None,
+    publisher: Optional[str] = None,
+    series_number: Optional[str] = None,
+    year: Optional[str] = None,
+    subjects: Optional[List[str]] = None
+):
+    """Create a new MARC record for a government document series"""
+    record = Record()
+    
+    # Use provided year or current year
+    pub_year = year or datetime.now().strftime('%Y')
+    
+    # Leader
+    leader = list(' ' * 24)
+    leader[5] = 'n'  # New record
+    leader[6] = 'c'  # Collection
+    leader[7] = 'm'  # Monograph
+    leader[17] = '7'  # Full level
+    record.leader = ''.join(leader)
+    
+    # Control fields
+    record.add_field(
+        Field(tag='008', data=''.join([
+            datetime.now().strftime('%y%m%d'),  # Date entered
+            's',                  # Publication status (single date)
+            pub_year,             # Publication date
+            '    ',               # Unused
+            'xxu',                # Country code (USA)
+            '    ',               # Unused
+            'a',                  # Illustrated
+            '    ',               # Target audience
+            'a',                  # Form of item (regular print)
+            '0',                  # Nature of contents
+            ' ',                  # Government publication
+            '0',                  # Conference publication
+            '0',                  # Festschrift
+            '0',                  # Index
+            ' ',                  # Undefined
+            '0',                  # Literary form
+            '0',                  # Biography
+            ' ',                  # Language
+            ' ',                  # Modified record
+            'd'                   # Cataloging source
+        ]))
+    )
+    
+    # Title (245)
+    record.add_field(
+        Field(
+            tag='245',
+            indicators=['0', '0'],
+            subfields=[
+                'a', title,
+                'h', '[electronic resource]'
+            ]
+        )
+    )
+    
+    # Publication info (260)
+    if publisher:
+        record.add_field(
+            Field(
+                tag='260',
+                indicators=[' ', ' '],
+                subfields=[
+                    'a', 'Washington, D.C. :',
+                    'b', publisher,
+                    'c', pub_year
+                ]
+            )
+        )
+    else:
+        record.add_field(
+            Field(
+                tag='260',
+                indicators=[' ', ' '],
+                subfields=[
+                    'a', 'Washington, D.C. :',
+                    'b', 'U.S. Government Publishing Office,',
+                    'c', pub_year
+                ]
+            )
+        )
+    
+    # Physical description (300)
+    record.add_field(
+        Field(
+            tag='300',
+            indicators=[' ', ' '],
+            subfields=[
+                'a', '1 online resource',
+                'b', 'illustrations'
+            ]
+        )
+    )
+    
+    # Series (490)
+    if series:
+        subfields = ['a', series]
+        if series_number:
+            subfields.extend(['v', series_number])
+            
+        record.add_field(
+            Field(
+                tag='490',
+                indicators=['1', ' '],
+                subfields=subfields
+            )
+        )
+    
+    # Content/media/carrier type (33X fields)
+    record.add_field(
+        Field(
+            tag='336',
+            indicators=[' ', ' '],
+            subfields=[
+                'a', 'text',
+                'b', 'txt',
+                '2', 'rdacontent'
+            ]
+        )
+    )
+    
+    record.add_field(
+        Field(
+            tag='337',
+            indicators=[' ', ' '],
+            subfields=[
+                'a', 'computer',
+                'b', 'c',
+                '2', 'rdamedia'
+            ]
+        )
+    )
+    
+    record.add_field(
+        Field(
+            tag='338',
+            indicators=[' ', ' '],
+            subfields=[
+                'a', 'online resource',
+                'b', 'cr',
+                '2', 'rdacarrier'
+            ]
+        )
+    )
+    
+    # Add subjects from common subjects
+    if subjects:
+        for subject in subjects:
+            record.add_field(
+                Field(
+                    tag='650',
+                    indicators=[' ', '0'],
+                    subfields=[
+                        'a', subject
+                    ]
+                )
+            )
+    
+    # Government document note
+    record.add_field(
+        Field(
+            tag='500',
+            indicators=[' ', ' '],
+            subfields=[
+                'a', 'Boundwith host record for government documents.'
+            ]
+        )
+    )
+    
+    # Authority heading for US Government (if it's a government series)
+    if any(term in title.lower() for term in ['committee', 'congress', 'senate', 'house']) or \
+       series and any(term in series.lower() for term in ['committee', 'congress', 'senate', 'house']):
+        record.add_field(
+            Field(
+                tag='110',
+                indicators=['1', ' '],
+                subfields=[
+                    'a', 'United States.',
+                    'b', 'Congress.'
+                ]
+            )
+        )
+    
+    # Add 590 field for local processing
+    record.add_field(
+        Field(
+            tag='590',
+            indicators=[' ', ' '],
+            subfields=[
+                'a', 'Boundwith host record created for cataloging government documents.'
+            ]
+        )
+    )
+    
+    return record
+
+# Helper functions for extracting data from MARC records
+def get_title_from_record(record):
+    """Extract title from a MARC record safely"""
+    # First check if record has a title() method
+    if hasattr(record, 'title') and callable(record.title):
+        try:
+            return record.title()
+        except Exception:
+            pass
+    
+    # If that fails, try to get title from 245 field
+    try:
+        for field in record.get_fields('245'):
+            title_parts = []
+            for code in ('a', 'b', 'p'):
+                subfields = field.get_subfields(code)
+                if subfields:
+                    title_parts.append(subfields[0])
+            if title_parts:
+                return ' '.join(title_parts)
+    except Exception:
+        pass
+    
+    # Fallback
+    return "Untitled Item"
+
+def get_oclc_number(record):
+    """Extract OCLC number from a MARC record"""
+    try:
+        for field in record.get_fields('035'):
+            for subfield in field.get_subfields('a'):
+                if '(OCoLC)' in subfield:
+                    return subfield
+    except Exception:
+        pass
+    return ""
+
+def get_control_number(record):
+    """Extract control number from a MARC record"""
+    try:
+        for field in record.get_fields('001'):
+            return field.data
+    except Exception:
+        pass
+    return ""

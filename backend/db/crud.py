@@ -2,6 +2,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.dialects.postgresql import insert
 from typing import List, Optional 
+from datetime import datetime
 from sqlalchemy import or_, func
 from . import models
 from .models import User
@@ -425,3 +426,40 @@ def remove_from_cart(db: Session, cart_id: int, record_id: int):
     db.commit()
     
     return True
+
+def create_new_marc_record(db: Session, marc_data: bytes, user_id: int) -> int:
+    """
+    Create a new MARC record in the database
+    Returns the ID of the new record
+    """
+    from pymarc import Record, MARCReader
+    from io import BytesIO
+    import uuid
+    
+    # Parse the MARC data to extract info
+    reader = MARCReader(BytesIO(marc_data), to_unicode=True)
+    record = next(reader)
+    
+    # Extract title for reference
+    title = "Unknown"
+    for field in record.get_fields('245'):
+        for subfield in field.get_subfields('a'):
+            title = subfield
+            break
+    
+    # Create a new record in the database
+    # This is a simplified version - adjust according to your actual model structure
+    record_id = str(uuid.uuid4())
+    new_record = models.SudocRecord(
+        record_id=record_id,
+        title=title,
+        marc_data=marc_data,
+        created_by=user_id,
+        created_at=datetime.now()
+    )
+    
+    db.add(new_record)
+    db.commit()
+    db.refresh(new_record)
+    
+    return new_record.id

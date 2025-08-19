@@ -3,7 +3,7 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, UniqueConstraint, Index, LargeBinary
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-import datetime
+from datetime import datetime  # Import the datetime class directly
 from .base import Base
 
 class Item(Base):
@@ -88,7 +88,7 @@ class UserLog(Base):
     method      = Column(String, nullable=False)
     status_code = Column(Integer, nullable=False)
     detail      = Column(String, nullable=True)
-    timestamp   = Column(DateTime, default=datetime.datetime.utcnow)
+    timestamp   = Column(DateTime, default=datetime.utcnow)  # Fix this line too
 
     user = relationship("User", back_populates="logs")
 
@@ -134,3 +134,13 @@ class SudocEditedRecord(Base):
     __table_args__ = (
         Index('ix_edited_record_id', 'record_id'),
     )
+
+class SudocRecord(Base):
+    __tablename__ = "sudoc_records"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    record_id = Column(String, index=True)
+    title = Column(String)
+    marc_data = Column(LargeBinary)
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.now)  # This will work now
