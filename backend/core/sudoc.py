@@ -1,6 +1,7 @@
 # backend/core/sudoc.py
 
 from pymarc import MARCReader, Record, MARCWriter  # Added MARCWriter
+from cachetools import LRUCache
 import os
 import sqlite3
 import zipfile
@@ -12,6 +13,9 @@ from db import crud
 BASE_DIR    = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SQLITE_PATH = os.path.join(BASE_DIR, "cgp_sudoc_index.db")
 RECORDS_DIR = os.path.join(BASE_DIR, "Record_sets")
+
+# Create a cache for MARC records
+marc_record_cache = LRUCache(maxsize=100)
 
 def _connect():
     return sqlite3.connect(SQLITE_PATH)
@@ -124,61 +128,66 @@ def get_marc_by_id(record_id: int, include_edits: bool = True):
                 db.close()
         except Exception as e:
             print(f"Error checking for edited record {record_id}: {e}")
-            # Continue to fallback - don't fail entirely
     
-    # No edited version found (or include_edits=False), fall back to original
-    return _get_original_marc_by_id(record_id)
+    # Check cache for original record
+    cache_key = f"marc_{record_id}"
+    if cache_key in marc_record_cache:
+        return marc_record_cache[cache_key]
+    
+    # Not in cache, retrieve from file
+    record = _get_original_marc_by_id(record_id)
+    if record:
+        marc_record_cache[cache_key] = record
+    return record
 
 def _get_original_marc_by_id(record_id: int):
-    """Get MARC record using stored position from index"""
-    print(f"Looking for record ID: {record_id}")
+    """Get MARC record using byte offset for direct access"""
     
-    conn = _connect()
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    
-    # Get the zip file and exact position for this record
-    cur.execute("SELECT zip_file, position_in_zip FROM records WHERE id = ?", (record_id,))
-    row = cur.fetchone()
-    
-    if not row:
-        print(f"Record {record_id} not found in index")
-        conn.close()
-        return None
+    with sqlite3.connect(SQLITE_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
         
-    zip_filename = row['zip_file']
-    position_in_zip = row['position_in_zip']
+        # Get the zip file and byte offset
+        cur.execute("""
+            SELECT zip_file, marc_file, byte_offset, record_length 
+            FROM records WHERE id = ?
+        """, (record_id,))
+        row = cur.fetchone()
+        
+        if not row:
+            print(f"Record {record_id} not found in index")
+            return None
+            
+        zip_filename = row['zip_file']
+        marc_filename = row['marc_file']
+        byte_offset = row['byte_offset']
+        record_length = row['record_length']
     
-    print(f"[SUDOC] id={record_id} -> zip={zip_filename}, pos_in_zip={position_in_zip}")
-    conn.close()
+    print(f"[SUDOC] id={record_id} -> zip={zip_filename}, byte_offset={byte_offset}")
     
     zip_path = os.path.join(RECORDS_DIR, zip_filename)
-    
     if not os.path.exists(zip_path):
         print(f"ZIP file not found: {zip_path}")
         return None
     
     try:
         with zipfile.ZipFile(zip_path, 'r') as zf:
-            marc_files = [f for f in zf.namelist() if f.endswith('.mrc')]
-            if not marc_files:
-                print(f"No MARC files found in {zip_filename}")
-                return None
-            
-            marc_filename = marc_files[0]
             with zf.open(marc_filename) as marc_file:
-                reader = MARCReader(marc_file, to_unicode=True, force_utf8=True, utf8_handling="replace")
+                # Seek directly to the byte offset
+                marc_file.seek(byte_offset)
                 
-                # Read to the exact stored position
-                current_position = 0
-                for record in reader:
-                    if current_position == position_in_zip:
-                        print(f"Found record at stored position {position_in_zip} in {zip_filename}")
-                        return record
-                    current_position += 1
+                # Read exactly the record length
+                record_data = marc_file.read(record_length)
                 
-                print(f"Record {record_id} not found at stored position {position_in_zip} in {zip_filename}")
-                return None
+                # Parse the record
+                from io import BytesIO
+                reader = MARCReader(BytesIO(record_data), to_unicode=True, force_utf8=True)
+                try:
+                    record = next(reader)
+                    return record
+                except StopIteration:
+                    print(f"Failed to parse record at offset {byte_offset}")
+                    return None
                 
     except Exception as e:
         print(f"Error reading MARC file: {e}")

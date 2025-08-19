@@ -1,26 +1,36 @@
 # backend/api/sudoc.py
 
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Body, Path, Depends
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ValidationError
-import io
+from pydantic import BaseModel
+import sqlite3
+import os
+import zipfile
+from io import BytesIO
 
 from core.sudoc import search_records, get_marc_by_id, get_record_fields
 from schemas.sudoc import (
     SudocSummary, 
     MarcFieldOut,
     SudocCartRead,
+    SudocCartCreate
 )
 from core.auth import get_current_user, require_cataloger
 from db.session import get_db
-from db import crud, models  # Add models import here
-from db.models import SudocCart
+from db import crud, models
+from db.models import SudocCart, SudocCartItem
 
 from sqlalchemy.orm import Session
-from pymarc import MARCWriter, Record
+from sqlalchemy import desc
+from pymarc import MARCWriter, Record, MARCReader
 
 router = APIRouter()
+
+# Base directory path
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+SQLITE_PATH = os.path.join(BASE_DIR, "cgp_sudoc_index.db")
+RECORDS_DIR = os.path.join(BASE_DIR, "Record_sets")
 
 class ExportRequest(BaseModel):
     record_ids: List[int]
@@ -35,10 +45,10 @@ def search_sudoc(
     offset = (page - 1) * limit
     rows = search_records(query, title, limit=limit, offset=offset)
     if not rows:
-        raise HTTPException(404, "No matching SuDoc records found")
+        return []
     return rows
 
-# Cart routes should come before the /{record_id} route
+# Cart routes
 @router.post("/cart", response_model=SudocCartRead)
 def create_cart(
     name: str = Body(..., embed=True),
@@ -55,7 +65,7 @@ def get_carts(
 ):
     """Get all carts"""
     try:
-        carts = crud.get_carts(db)
+        carts = db.query(SudocCart).order_by(desc(SudocCart.created_at)).all()
         return [
             SudocCartRead(
                 id=cart.id,
@@ -66,11 +76,8 @@ def get_carts(
             for cart in carts
         ]
     except Exception as e:
-        print("Error in get_carts:", str(e))
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch carts: {str(e)}"
-        )
+        print(f"Error getting carts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/cart/{cart_id}/records/{record_id}")
 def add_record_to_cart(
@@ -81,9 +88,15 @@ def add_record_to_cart(
 ):
     """Add a SuDoc record to a cart"""
     # Verify record exists using your existing MARC record system
-    record = get_marc_by_id(record_id, include_edits=False)  # Check original only for verification
-    if not record:
-        raise HTTPException(404, f"SuDoc record {record_id} not found")
+    try:
+        # Check if record exists in index
+        with sqlite3.connect(SQLITE_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM records WHERE id = ?", (record_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Record not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error checking record: {str(e)}")
         
     return crud.add_to_cart(db, cart_id, record_id)
 
@@ -95,21 +108,32 @@ def delete_cart(
 ):
     """Delete a cart and all its items"""
     try:
-        crud.delete_cart(db, cart_id)
+        cart = db.query(SudocCart).filter(SudocCart.id == cart_id).first()
+        if not cart:
+            raise HTTPException(status_code=404, detail="Cart not found")
+            
+        # Delete all items first
+        db.query(SudocCartItem).filter(SudocCartItem.cart_id == cart_id).delete()
+        
+        # Then delete the cart
+        db.delete(cart)
+        db.commit()
         return {"message": "Cart deleted successfully"}
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to delete cart: {str(e)}"
-        )
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/carts/{cart_id}/records")
 async def get_cart_records(
     cart_id: int,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
     current_user = Depends(require_cataloger),
     db: Session = Depends(get_db)
 ):
-    """Get full record data for all items in a cart"""
+    """Get summary record data for items in a cart with pagination"""
+    print(f"Looking for records in cart {cart_id}")
+    
     # Get the cart
     cart = db.query(SudocCart).filter(
         SudocCart.id == cart_id
@@ -118,193 +142,168 @@ async def get_cart_records(
     if not cart:
         raise HTTPException(status_code=404, detail="Cart not found")
     
-    # Get record IDs from cart items
-    record_ids = [item.record_id for item in cart.items] if cart.items else []
+    # Get record IDs from cart items with pagination
+    offset = (page - 1) * limit
+    items_query = db.query(SudocCartItem).filter(
+        SudocCartItem.cart_id == cart_id
+    ).order_by(SudocCartItem.added_at.desc())
+    
+    total_count = items_query.count()
+    cart_items = items_query.offset(offset).limit(limit).all()
+    record_ids = [item.record_id for item in cart_items]
     
     if not record_ids:
-        return []
+        return {"items": [], "total": total_count, "page": page, "pages": (total_count + limit - 1) // limit}
     
-    # Use the existing sudoc index/search system to get record summaries
-    import sqlite3
-    import os
-    
+    # Fetch records from the index database
     try:
-        # Connect to the sudoc index database
-        db_path = os.path.join(os.path.dirname(__file__), "..", "cgp_sudoc_index.db")
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        # Get records by IDs from the index - using correct table and column names
-        placeholders = ','.join(['?' for _ in record_ids])
-        query = f"""
-            SELECT id, sudoc, title, oclc 
-            FROM records 
-            WHERE id IN ({placeholders})
-        """
-        
-        cursor.execute(query, record_ids)
-        rows = cursor.fetchall()
-        conn.close()
-        
-        # Convert to the expected format
-        records = []
-        for row in rows:
-            records.append({
-                "id": row[0],
-                "sudoc": row[1] or "",
-                "title": row[2] or "Untitled",
-                "oclc": row[3]
-            })
-        
-        return records
-        
-    except Exception as e:
-        print(f"Error fetching cart records: {e}")
-        return []
-
-# Then the record_id route
-@router.get("/{record_id}", response_model=List[MarcFieldOut])
-def fetch_sudoc_record(record_id: int):
-    fields = get_record_fields(record_id)
-    if not fields:
-        raise HTTPException(404, f"SuDoc record {record_id} not found")
-    return fields
-
-@router.post("/export")
-def export_sudoc_records(body: ExportRequest = Body(...)):
-    if not body.record_ids:
-        raise HTTPException(400, "No record IDs provided for export")
-
-    buffer = io.BytesIO()
-    writer = MARCWriter(buffer)
-
-    for rid in body.record_ids:
-        # Use the version that includes edits
-        rec = get_marc_by_id(rid, include_edits=True)
-        if rec is None:
-            raise HTTPException(404, f"SuDoc record {rid} not found")
-        writer.write(rec)
-
-    buffer.seek(0)
-
-    return StreamingResponse(
-        buffer,
-        media_type="application/vnd.marc",
-        headers={"Content-Disposition": "attachment; filename=\"sudoc_export.mrc\""}
-    )
-
-@router.patch("/{record_id}/field/{field_index}", response_model=MarcFieldOut)
-def update_marc_field(
-    record_id: int = Path(...),
-    field_index: int = Path(...),
-    field_data: Dict = Body(...),
-    current_user = Depends(require_cataloger),
-    db: Session = Depends(get_db)
-):
-    try:
-        record = get_marc_by_id(record_id, include_edits=True)  # Include edits for editing
-        if not record:
-            raise HTTPException(404, "Record not found")
+        with sqlite3.connect(SQLITE_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
             
-        fields = record.get_fields()
-        if field_index >= len(fields):
-            raise HTTPException(400, "Field index out of range")
+            placeholders = ','.join('?' for _ in record_ids)
+            query = f"""
+                SELECT id, sudoc, title, oclc 
+                FROM records 
+                WHERE id IN ({placeholders})
+            """
             
-        # Get the field to update
-        field = fields[field_index]
+            cursor.execute(query, record_ids)
+            rows = cursor.fetchall()
         
-        # Update the field based on the provided data
-        if field.is_control_field():
-            field.data = field_data.get("data", field.data)
-        else:
-            # Update indicators
-            field.indicator1 = field_data.get("ind1", field.indicator1)
-            field.indicator2 = field_data.get("ind2", field.indicator2)
-            
-            # Update subfields
-            if "subfields" in field_data:
-                # Clear existing subfields and add new ones
-                field.subfields = []
-                for code, value in field_data["subfields"].items():
-                    field.add_subfield(code, value)
-                
-        # Save the edited version - this should save to a separate location
-        # You'll need to implement save_edited_record in your crud module
-        marc_data = record.as_marc()
-        crud.save_edited_record(db, record_id, marc_data, current_user.id)
+        # Convert to dictionary for faster lookups
+        records_dict = {row['id']: {
+            "id": row['id'],
+            "sudoc": row['sudoc'] or "",
+            "title": row['title'] or "Untitled",
+            "oclc": row['oclc'] or ""
+        } for row in rows}
+        
+        # Maintain the order from cart_items
+        items = [records_dict.get(rid, {"id": rid, "sudoc": "", "title": "Record not found", "oclc": ""}) 
+                for rid in record_ids]
         
         return {
-            "tag": field.tag,
-            "ind1": field.indicator1 or " ",
-            "ind2": field.indicator2 or " ",
-            "subfields": field_data.get("subfields", {})
-        }
-    except Exception as e:
-        raise HTTPException(500, f"Failed to update field: {str(e)}")
-
-@router.post("/{record_id}/field/add", response_model=MarcFieldOut)
-def add_marc_field(
-    record_id: int = Path(...),
-    field_data: Dict = Body(...),
-    current_user = Depends(require_cataloger),
-    db: Session = Depends(get_db)
-):
-    """Add a new MARC field to a record"""
-    try:
-        record = get_marc_by_id(record_id, include_edits=True)  # Include edits for adding fields
-        if not record:
-            raise HTTPException(404, "Record not found")
-        
-        # Create new field
-        from pymarc import Field, Subfield
-        
-        tag = field_data.get("tag")
-        ind1 = field_data.get("ind1", " ")
-        ind2 = field_data.get("ind2", " ")
-        subfields = field_data.get("subfields", {})
-        
-        # Create subfield list using Subfield objects for newer pymarc
-        subfield_list = []
-        for code, value in subfields.items():
-            if value:  # Only add non-empty subfields
-                subfield_list.append(Subfield(code=code, value=value))
-        
-        new_field = Field(
-            tag=tag,
-            indicators=[ind1, ind2],
-            subfields=subfield_list
-        )
-        
-        # Add field to record
-        record.add_field(new_field)
-        
-        # Save the edited version
-        marc_data = record.as_marc()
-        crud.save_edited_record(db, record_id, marc_data, current_user.id)
-        
-        return {
-            "tag": tag,
-            "ind1": ind1,
-            "ind2": ind2,
-            "subfields": subfields
+            "items": items,
+            "total": total_count,
+            "page": page,
+            "pages": (total_count + limit - 1) // limit
         }
         
     except Exception as e:
-        raise HTTPException(500, f"Failed to add field: {str(e)}")
+        print(f"Database connection error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/cart/{cart_id}/records/{record_id}")
 async def remove_from_cart(
     cart_id: int,
     record_id: int,
     db: Session = Depends(get_db),
-    current_user = Depends(require_cataloger)  # Use require_cataloger for consistency
+    current_user = Depends(require_cataloger)
 ):
     """Remove a record from a cart"""
     try:
-        # Use the crud function instead of direct model access
-        crud.remove_from_cart(db, cart_id, record_id)
-        return {"message": "Item removed from cart successfully"}
+        # Check if item exists
+        item = db.query(SudocCartItem).filter(
+            SudocCartItem.cart_id == cart_id,
+            SudocCartItem.record_id == record_id
+        ).first()
         
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found in cart")
+            
+        # Delete the item
+        db.delete(item)
+        db.commit()
+        return {"message": "Item removed from cart"}
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to remove item from cart: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Record retrieval with direct byte offset access
+@router.get("/{record_id}", response_model=List[MarcFieldOut])
+def fetch_sudoc_record(record_id: int):
+    print(f"Looking for record ID: {record_id}")
+    fields = get_record_fields(record_id)
+    if not fields:
+        raise HTTPException(status_code=404, detail=f"Record ID {record_id} not found")
+    return fields
+
+# Add these functions to core/sudoc.py
+def get_marc_by_id_direct(record_id: int):
+    """Get MARC record using byte offset for direct access"""
+    
+    with sqlite3.connect(SQLITE_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        
+        # Get the zip file and byte offset
+        cur.execute("""
+            SELECT zip_file, marc_file, byte_offset, record_length 
+            FROM records WHERE id = ?
+        """, (record_id,))
+        row = cur.fetchone()
+        
+        if not row:
+            print(f"Record {record_id} not found in index")
+            return None
+            
+        zip_filename = row['zip_file']
+        marc_filename = row['marc_file']
+        byte_offset = row['byte_offset']
+        record_length = row['record_length']
+    
+    print(f"[SUDOC] id={record_id} -> zip={zip_filename}, byte_offset={byte_offset}")
+    
+    zip_path = os.path.join(RECORDS_DIR, zip_filename)
+    if not os.path.exists(zip_path):
+        print(f"ZIP file not found: {zip_path}")
+        return None
+    
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            with zf.open(marc_filename) as marc_file:
+                # Seek directly to the byte offset
+                marc_file.seek(byte_offset)
+                
+                # Read exactly the record length
+                record_data = marc_file.read(record_length)
+                
+                # Parse the record
+                reader = MARCReader(BytesIO(record_data), to_unicode=True, force_utf8=True)
+                try:
+                    record = next(reader)
+                    return record
+                except StopIteration:
+                    print(f"Failed to parse record at offset {byte_offset}")
+                    return None
+                
+    except Exception as e:
+        print(f"Error reading MARC file: {e}")
+        return None
+
+@router.post("/export")
+def export_sudoc_records(body: ExportRequest = Body(...)):
+    """Export MARC records to a single file"""
+    if not body.record_ids:
+        raise HTTPException(status_code=400, detail="No record IDs provided")
+    
+    # Create a BytesIO buffer to hold the MARC data
+    buffer = BytesIO()
+    writer = MARCWriter(buffer)
+    
+    for record_id in body.record_ids:
+        record = get_marc_by_id(record_id)
+        if record:
+            writer.write(record)
+    
+    # Reset buffer position
+    buffer.seek(0)
+    
+    # Return as downloadable file
+    filename = f"export_{len(body.record_ids)}_records.mrc"
+    return StreamingResponse(
+        buffer, 
+        media_type="application/marc",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )

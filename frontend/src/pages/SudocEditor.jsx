@@ -14,7 +14,7 @@ export default function SudocEditor() {
   const [workingMode, setWorkingMode] = useState('checkout'); // 'checkout' or 'cart'
   const [showAddField, setShowAddField] = useState(false);
   const [newField945, setNewField945] = useState({
-    l: 'ssy', // default location
+    l: 'ssd', // default location
     i: '',    // barcode
     c: '',    // call number
     n: ''     // enumeration/chronology
@@ -66,7 +66,10 @@ export default function SudocEditor() {
             throw new Error(`Failed to fetch cart records: ${res.status}`);
           }
           
-          const cartRecords = await res.json();
+          const response = await res.json();
+          // Fix: extract the items array from the response
+          const cartRecords = response.items || [];
+          
           setRecords(cartRecords);
           setWorkingMode('cart');
           setSelectedId(cartRecords[0]?.id || null);
