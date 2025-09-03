@@ -9,9 +9,16 @@ import os
 import zipfile
 from io import BytesIO
 from datetime import datetime
-from pymarc import Field, Record
+from pymarc import Record, Field, Subfield, MARCWriter, MARCReader
 
-from core.sudoc import search_records, get_marc_by_id, get_record_fields
+from core.sudoc import (
+    search_records, get_marc_by_id, get_record_fields,
+    get_title_from_record, get_control_number, get_oclc_number,
+    create_government_series_host_record, add_holdings_and_item_fields,
+    _preferred_control_number, _strip_existing_link_fields,
+    _extract_host_title, _extract_child_ids,
+    get_record_with_boundwith_info
+)
 from schemas.sudoc import (
     SudocSummary, 
     MarcFieldOut,
@@ -24,8 +31,8 @@ from db import crud, models
 from db.models import SudocCart, SudocCartItem
 
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
-from pymarc import MARCWriter, Record, MARCReader, Field
+from sqlalchemy import desc, func
+import re
 
 router = APIRouter()
 
@@ -46,12 +53,22 @@ class HostRecordData(BaseModel):
     year: Optional[str] = None
     subjects: Optional[List[str]] = None
 
+class HoldingsItemData(BaseModel):
+    """Data for creating holdings and item fields"""
+    location_code: str = "main"  # e.g., "main", "sci", "spec"
+    call_number: Optional[str] = None
+    barcode: Optional[str] = None
+    item_policy: str = "book"  # e.g., "book", "periodical"
+    enumeration: Optional[str] = None  # v.1, etc.
+    chronology: Optional[str] = None  # 2023, Jan, etc.
+
 class BoundwithRequest(BaseModel):
     """Request model for creating boundwith relationships"""
     creation_mode: str  # "existing" or "new-host"
     main_record_id: Optional[int] = None
     related_record_ids: List[int]
     host_record: Optional[HostRecordData] = None
+    holdings_data: Optional[HoldingsItemData] = None  # Add this field
 
 @router.get("/search", response_model=List[SudocSummary])
 def search_sudoc(
@@ -104,18 +121,21 @@ def add_record_to_cart(
     current_user = Depends(require_cataloger),
     db: Session = Depends(get_db)
 ):
-    """Add a SuDoc record to a cart"""
-    # Verify record exists using your existing MARC record system
-    try:
-        # Check if record exists in index
-        with sqlite3.connect(SQLITE_PATH) as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT id FROM records WHERE id = ?", (record_id,))
-            if not cur.fetchone():
-                raise HTTPException(status_code=404, detail="Record not found")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error checking record: {str(e)}")
-        
+    """Add any record type (original, edited or created) to a cart"""
+    # First try to get the record using our unified resolver
+    record = get_marc_by_id(record_id, include_edits=True)
+    if not record:
+        # Not found via our resolver, check SQLite directly as fallback
+        try:
+            with sqlite3.connect(SQLITE_PATH) as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT id FROM records WHERE id = ?", (record_id,))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="Record not found")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error checking record: {str(e)}")
+            
+    # If we got here, record exists in some form
     return crud.add_to_cart(db, cart_id, record_id)
 
 @router.delete("/cart/{cart_id}")
@@ -152,54 +172,87 @@ async def get_cart_records(
     """Get summary record data for items in a cart with pagination"""
     print(f"Looking for records in cart {cart_id}")
     
-    # Get the cart
-    cart = db.query(SudocCart).filter(
-        SudocCart.id == cart_id
-    ).first()
-    
-    if not cart:
-        raise HTTPException(status_code=404, detail="Cart not found")
-    
-    # Get record IDs from cart items with pagination
-    offset = (page - 1) * limit
-    items_query = db.query(SudocCartItem).filter(
-        SudocCartItem.cart_id == cart_id
-    ).order_by(SudocCartItem.added_at.desc())
-    
-    total_count = items_query.count()
-    cart_items = items_query.offset(offset).limit(limit).all()
-    record_ids = [item.record_id for item in cart_items]
-    
-    if not record_ids:
-        return {"items": [], "total": total_count, "page": page, "pages": (total_count + limit - 1) // limit}
-    
-    # Fetch records from the index database
     try:
-        with sqlite3.connect(SQLITE_PATH) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            placeholders = ','.join('?' for _ in record_ids)
-            query = f"""
-                SELECT id, sudoc, title, oclc 
-                FROM records 
-                WHERE id IN ({placeholders})
-            """
-            
-            cursor.execute(query, record_ids)
-            rows = cursor.fetchall()
+        # Get the cart
+        cart = db.query(SudocCart).filter(
+            SudocCart.id == cart_id
+        ).first()
         
-        # Convert to dictionary for faster lookups
-        records_dict = {row['id']: {
-            "id": row['id'],
-            "sudoc": row['sudoc'] or "",
-            "title": row['title'] or "Untitled",
-            "oclc": row['oclc'] or ""
-        } for row in rows}
+        if not cart:
+            raise HTTPException(status_code=404, detail="Cart not found")
         
-        # Maintain the order from cart_items
-        items = [records_dict.get(rid, {"id": rid, "sudoc": "", "title": "Record not found", "oclc": ""}) 
-                for rid in record_ids]
+        # Get record IDs from cart items with pagination
+        offset = (page - 1) * limit
+        items_query = db.query(SudocCartItem).filter(
+            SudocCartItem.cart_id == cart_id
+        ).order_by(SudocCartItem.added_at.desc())
+        
+        total_count = items_query.count()
+        cart_items = items_query.offset(offset).limit(limit).all()
+        record_ids = [item.record_id for item in cart_items]
+        
+        if not record_ids:
+            return {"items": [], "total": total_count, "page": page, "pages": (total_count + limit - 1) // limit}
+        
+        # Initialize results list
+        items = []
+        
+        # First, check for created records in PostgreSQL
+        created_records = {}
+        created_query = db.query(models.SudocCreatedRecord).filter(
+            models.SudocCreatedRecord.id.in_(record_ids)
+        ).all()
+        
+        for record in created_query:
+            # Parse MARC and extract title
+            marc_reader = MARCReader(BytesIO(record.marc_data), to_unicode=True)
+            marc_record = next(marc_reader, None)
+            title = "Untitled"
+            if marc_record:
+                title = get_title_from_record(marc_record)
+            
+            created_records[record.id] = {
+                "id": record.id,
+                "title": title,
+                "sudoc": "",  # Created hosts might not have SuDoc numbers
+                "oclc": ""
+            }
+        
+        # Get remaining records from SQLite
+        remaining_ids = [rid for rid in record_ids if rid not in created_records]
+        sqlite_records = {}
+        
+        if remaining_ids:
+            with sqlite3.connect(SQLITE_PATH) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                placeholders = ','.join('?' for _ in remaining_ids)
+                query = f"""
+                    SELECT id, sudoc, title, oclc 
+                    FROM records 
+                    WHERE id IN ({placeholders})
+                """
+                
+                cursor.execute(query, remaining_ids)
+                rows = cursor.fetchall()
+            
+            # Convert to dictionary for faster lookups
+            sqlite_records = {row['id']: {
+                "id": row['id'],
+                "sudoc": row['sudoc'] or "",
+                "title": row['title'] or "Untitled",
+                "oclc": row['oclc'] or ""
+            } for row in rows}
+        
+        # Combine results maintaining order
+        for rid in record_ids:
+            if rid in created_records:
+                items.append(created_records[rid])
+            elif rid in sqlite_records:
+                items.append(sqlite_records[rid])
+            else:
+                items.append({"id": rid, "sudoc": "", "title": "Record not found", "oclc": ""})
         
         return {
             "items": items,
@@ -247,59 +300,6 @@ def fetch_sudoc_record(record_id: int):
         raise HTTPException(status_code=404, detail=f"Record ID {record_id} not found")
     return fields
 
-# Add these functions to core/sudoc.py
-def get_marc_by_id_direct(record_id: int):
-    """Get MARC record using byte offset for direct access"""
-    
-    with sqlite3.connect(SQLITE_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        
-        # Get the zip file and byte offset
-        cur.execute("""
-            SELECT zip_file, marc_file, byte_offset, record_length 
-            FROM records WHERE id = ?
-        """, (record_id,))
-        row = cur.fetchone()
-        
-        if not row:
-            print(f"Record {record_id} not found in index")
-            return None
-            
-        zip_filename = row['zip_file']
-        marc_filename = row['marc_file']
-        byte_offset = row['byte_offset']
-        record_length = row['record_length']
-    
-    print(f"[SUDOC] id={record_id} -> zip={zip_filename}, byte_offset={byte_offset}")
-    
-    zip_path = os.path.join(RECORDS_DIR, zip_filename)
-    if not os.path.exists(zip_path):
-        print(f"ZIP file not found: {zip_path}")
-        return None
-    
-    try:
-        with zipfile.ZipFile(zip_path, 'r') as zf:
-            with zf.open(marc_filename) as marc_file:
-                # Seek directly to the byte offset
-                marc_file.seek(byte_offset)
-                
-                # Read exactly the record length
-                record_data = marc_file.read(record_length)
-                
-                # Parse the record
-                reader = MARCReader(BytesIO(record_data), to_unicode=True, force_utf8=True)
-                try:
-                    record = next(reader)
-                    return record
-                except StopIteration:
-                    print(f"Failed to parse record at offset {byte_offset}")
-                    return None
-                
-    except Exception as e:
-        print(f"Error reading MARC file: {e}")
-        return None
-
 @router.post("/export")
 def export_sudoc_records(body: ExportRequest = Body(...)):
     """Export MARC records to a single file"""
@@ -332,428 +332,336 @@ async def create_boundwith(
     current_user = Depends(require_cataloger),
     db: Session = Depends(get_db)
 ):
-    """Create boundwith relationships between records"""
-    # Validate the creation mode
-    if request.creation_mode not in ["existing", "new-host"]:
-        raise HTTPException(status_code=400, detail="Invalid creation mode")
-    
-    # Existing mode: use an existing record as the main record
+    """
+    Create / update boundwith relationships.
+    Modes:
+      existing  -> choose an existing bib as host (main_record_id)
+      new-host  -> mint a new host record, then link selected records
+    """
+    if request.creation_mode not in ("existing", "new-host"):
+        raise HTTPException(status_code=400, detail="Invalid creation_mode")
+
+    # ---------- EXISTING HOST MODE ----------
     if request.creation_mode == "existing":
         if not request.main_record_id:
-            raise HTTPException(status_code=400, detail="Main record ID is required for existing mode")
-        
-        main_id = request.main_record_id
-        related_ids = [id for id in request.related_record_ids if id != main_id]
-        
-        # Validate that all records exist
-        all_ids = [main_id] + related_ids
-        for record_id in all_ids:
-            if not get_marc_by_id(record_id):
-                raise HTTPException(status_code=404, detail=f"Record {record_id} not found")
-        
-        # Get the main record
-        main_record = get_marc_by_id(main_id)
-        
-        # Extract main record details
-        main_title = get_title_from_record(main_record)
-        main_control_number = get_control_number(main_record)
-        main_oclc = get_oclc_number(main_record)
-        
-        # Update the main record with 501 "With" notes and 774 fields
-        for related_id in related_ids:
-            related_record = get_marc_by_id(related_id)
-            if related_record:
-                # Extract related record details
-                related_title = get_title_from_record(related_record)
-                related_oclc = get_oclc_number(related_record)
-                related_control = get_control_number(related_record)
-                
-                # Add a 501 "With" note to the main record
-                main_record.add_field(
-                    Field(
-                        tag='501',
-                        indicators=[' ', ' '],
-                        subfields=['a', f"With: {related_title}"]
-                    )
-                )
-                
-                # Add a 774 field (constituent unit entry) to the main record
-                main_record.add_field(
-                    Field(
-                        tag='774',
-                        indicators=['0', ' '],
-                        subfields=[
-                            't', related_title,
-                            'w', related_oclc or "",
-                            'o', related_control or ""
-                        ]
-                    )
-                )
-        
-        # Save the updated main record
-        marc_data = main_record.as_marc()
-        crud.save_edited_record(db, main_id, marc_data, current_user.id)
-        
-        # Update each related record with a 773 field pointing to the main record
-        for related_id in related_ids:
-            related_record = get_marc_by_id(related_id)
-            if related_record:
-                # Add a 773 field (host item entry) to each related record
-                related_record.add_field(
-                    Field(
-                        tag='773',
-                        indicators=['0', ' '],
-                        subfields=[
-                            't', main_title,
-                            'w', main_oclc or "",
-                            'o', main_control_number or ""
-                        ]
-                    )
-                )
-                
-                # Save the updated related record
-                marc_data = related_record.as_marc()
-                crud.save_edited_record(db, related_id, marc_data, current_user.id)
-        
-        return {
-            "status": "success", 
-            "message": f"Created boundwith relationship between {len(all_ids)} records"
-        }
-        
-    # New host mode: create a new host record
-    else:  # request.creation_mode == "new-host"
-        if not request.host_record or not request.host_record.title:
-            raise HTTPException(status_code=400, detail="Host record details required")
-        
-        related_ids = request.related_record_ids
-        
-        # Validate that all records exist
-        for record_id in related_ids:
-            if not get_marc_by_id(record_id):
-                raise HTTPException(status_code=404, detail=f"Record {record_id} not found")
-        
-        # Create a new host record
-        host_record = create_government_series_host_record(
-            title=request.host_record.title,
-            series=request.host_record.series,
-            publisher=request.host_record.publisher,
-            series_number=request.host_record.series_number,
-            year=request.host_record.year if hasattr(request.host_record, "year") else None,
-            subjects=request.host_record.subjects if hasattr(request.host_record, "subjects") else None
-        )
-        
-        # Save the new host record to the database to get an ID
-        host_marc_data = host_record.as_marc()
-        host_id = crud.create_new_marc_record(db, host_marc_data, current_user.id)
-        
-        # Extract host record details
-        host_title = get_title_from_record(host_record)
-        host_control_number = get_control_number(host_record)
-        host_oclc = get_oclc_number(host_record)
-        
-        # Update the host record with 501 and 774 fields for each related record
-        host_record = get_marc_by_id(host_id)  # Get the newly created record
-        
-        for related_id in related_ids:
-            related_record = get_marc_by_id(related_id)
-            if related_record:
-                # Extract related record details
-                related_title = get_title_from_record(related_record)
-                related_oclc = get_oclc_number(related_record)
-                related_control = get_control_number(related_record)
-                
-                # Add a 501 "With" note to the host record
-                host_record.add_field(
-                    Field(
-                        tag='501',
-                        indicators=[' ', ' '],
-                        subfields=['a', f"With: {related_title}"]
-                    )
-                )
-                
-                # Add a 774 field (constituent unit entry) to the host record
-                host_record.add_field(
-                    Field(
-                        tag='774',
-                        indicators=['0', ' '],
-                        subfields=[
-                            't', related_title,
-                            'w', related_oclc or "",
-                            'o', related_control or ""
-                        ]
-                    )
-                )
-                
-                # Add a 773 field (host item entry) to the related record
-                related_record.add_field(
-                    Field(
-                        tag='773',
-                        indicators=['0', ' '],
-                        subfields=[
-                            't', host_title,
-                            'w', host_oclc or "",
-                            'o', host_control_number or ""
-                        ]
-                    )
-                )
-                
-                # Save the updated related record
-                marc_data = related_record.as_marc()
-                crud.save_edited_record(db, related_id, marc_data, current_user.id)
-        
-        # Save the updated host record
-        marc_data = host_record.as_marc()
-        crud.save_edited_record(db, host_id, marc_data, current_user.id)
-        
-        return {
-            "status": "success",
-            "message": f"Created new host record ({host_id}) with {len(related_ids)} constituent parts",
-            "host_record_id": host_id
-        }
+            raise HTTPException(status_code=400, detail="main_record_id required")
+        host_id = request.main_record_id
+        child_ids = [rid for rid in request.related_record_ids if rid != host_id]
+        if not child_ids:
+            raise HTTPException(status_code=400, detail="At least one constituent required")
 
-# Helper functions for creating a government series host record
-def create_government_series_host_record(
-    title: str,
-    series: Optional[str] = None,
-    publisher: Optional[str] = None,
-    series_number: Optional[str] = None,
-    year: Optional[str] = None,
-    subjects: Optional[List[str]] = None
-):
-    """Create a new MARC record for a government document series"""
-    record = Record()
-    
-    # Use provided year or current year
-    pub_year = year or datetime.now().strftime('%Y')
-    
-    # Leader
-    leader = list(' ' * 24)
-    leader[5] = 'n'  # New record
-    leader[6] = 'c'  # Collection
-    leader[7] = 'm'  # Monograph
-    leader[17] = '7'  # Full level
-    record.leader = ''.join(leader)
-    
-    # Control fields
-    record.add_field(
-        Field(tag='008', data=''.join([
-            datetime.now().strftime('%y%m%d'),  # Date entered
-            's',                  # Publication status (single date)
-            pub_year,             # Publication date
-            '    ',               # Unused
-            'xxu',                # Country code (USA)
-            '    ',               # Unused
-            'a',                  # Illustrated
-            '    ',               # Target audience
-            'a',                  # Form of item (regular print)
-            '0',                  # Nature of contents
-            ' ',                  # Government publication
-            '0',                  # Conference publication
-            '0',                  # Festschrift
-            '0',                  # Index
-            ' ',                  # Undefined
-            '0',                  # Literary form
-            '0',                  # Biography
-            ' ',                  # Language
-            ' ',                  # Modified record
-            'd'                   # Cataloging source
-        ]))
-    )
-    
-    # Title (245)
-    record.add_field(
-        Field(
-            tag='245',
-            indicators=['0', '0'],
-            subfields=[
-                'a', title,
-                'h', '[electronic resource]'
-            ]
-        )
-    )
-    
-    # Publication info (260)
-    if publisher:
-        record.add_field(
-            Field(
-                tag='260',
-                indicators=[' ', ' '],
-                subfields=[
-                    'a', 'Washington, D.C. :',
-                    'b', publisher,
-                    'c', pub_year
-                ]
-            )
-        )
-    else:
-        record.add_field(
-            Field(
-                tag='260',
-                indicators=[' ', ' '],
-                subfields=[
-                    'a', 'Washington, D.C. :',
-                    'b', 'U.S. Government Publishing Office,',
-                    'c', pub_year
-                ]
-            )
-        )
-    
-    # Physical description (300)
-    record.add_field(
-        Field(
-            tag='300',
-            indicators=[' ', ' '],
-            subfields=[
-                'a', '1 online resource',
-                'b', 'illustrations'
-            ]
-        )
-    )
-    
-    # Series (490)
-    if series:
-        subfields = ['a', series]
-        if series_number:
-            subfields.extend(['v', series_number])
-            
-        record.add_field(
-            Field(
-                tag='490',
-                indicators=['1', ' '],
-                subfields=subfields
-            )
-        )
-    
-    # Content/media/carrier type (33X fields)
-    record.add_field(
-        Field(
-            tag='336',
-            indicators=[' ', ' '],
-            subfields=[
-                'a', 'text',
-                'b', 'txt',
-                '2', 'rdacontent'
-            ]
-        )
-    )
-    
-    record.add_field(
-        Field(
-            tag='337',
-            indicators=[' ', ' '],
-            subfields=[
-                'a', 'computer',
-                'b', 'c',
-                '2', 'rdamedia'
-            ]
-        )
-    )
-    
-    record.add_field(
-        Field(
-            tag='338',
-            indicators=[' ', ' '],
-            subfields=[
-                'a', 'online resource',
-                'b', 'cr',
-                '2', 'rdacarrier'
-            ]
-        )
-    )
-    
-    # Add subjects from common subjects
-    if subjects:
-        for subject in subjects:
-            record.add_field(
+        # Validate existence
+        for rid in [host_id] + child_ids:
+            if not get_marc_by_id(rid):
+                raise HTTPException(status_code=404, detail=f"Record {rid} not found")
+
+        host_rec = get_marc_by_id(host_id, include_edits=True)
+        host_title = get_title_from_record(host_rec)
+        host_w = _preferred_control_number(host_rec, str(host_id))
+        # Ensure it contains explicit LOCAL prefix if it's using the local ID
+        if not any(prefix in host_w for prefix in ['(OCoLC)', '(ORG)', '(LOCAL)']):
+            host_w = f"(LOCAL){host_id}"
+
+        # Optional holdings only on host
+        if request.holdings_data:
+            add_holdings_and_item_fields(host_rec, request.holdings_data)
+
+        _strip_existing_link_fields(host_rec)
+
+        for cid in child_ids:
+            child_rec = get_marc_by_id(cid, include_edits=True)
+            if not child_rec:
+                continue
+            _strip_existing_link_fields(child_rec)
+            child_title = get_title_from_record(child_rec)
+            child_w = _preferred_control_number(child_rec, str(cid))
+
+            # 774 on host
+            host_rec.add_field(
                 Field(
-                    tag='650',
-                    indicators=[' ', '0'],
+                    tag='774',
+                    indicators=['0', '8'],
                     subfields=[
-                        'a', subject
+                        Subfield('i', 'Contains (work):'),
+                        Subfield('t', child_title),
+                        Subfield('w', child_w)
                     ]
                 )
             )
-    
-    # Government document note
-    record.add_field(
-        Field(
-            tag='500',
-            indicators=[' ', ' '],
-            subfields=[
-                'a', 'Boundwith host record for government documents.'
-            ]
-        )
+            # 773 on child
+            child_rec.add_field(
+                Field(
+                    tag='773',
+                    indicators=['0', '8'],
+                    subfields=[
+                        Subfield('i', 'Bound with:'),
+                        Subfield('t', host_title),
+                        Subfield('w', host_w)
+                    ]
+                )
+            )
+            crud.save_edited_record(db, cid, child_rec.as_marc(), current_user.id)
+
+        crud.save_edited_record(db, host_id, host_rec.as_marc(), current_user.id)
+        return {
+            "status": "success",
+            "message": f"Boundwith established. Host {host_id} with {len(child_ids)} constituents.",
+            "host_id": host_id,
+            "child_ids": child_ids
+        }
+
+    # ---------- NEW HOST MODE ----------
+    if not request.host_record or not request.host_record.title:
+        raise HTTPException(status_code=400, detail="host_record.title required")
+    child_ids = list(request.related_record_ids)
+    if not child_ids:
+        raise HTTPException(status_code=400, detail="At least one constituent required")
+    for rid in child_ids:
+        if not get_marc_by_id(rid):
+            raise HTTPException(status_code=404, detail=f"Record {rid} not found")
+
+    h = request.host_record
+    host_rec = create_government_series_host_record(
+        title=h.title,
+        series=None,
+        publisher=h.publisher,
+        series_number=None,
+        year=h.year,
+        subjects=h.subjects
     )
-    
-    # Authority heading for US Government (if it's a government series)
-    if any(term in title.lower() for term in ['committee', 'congress', 'senate', 'house']) or \
-       series and any(term in series.lower() for term in ['committee', 'congress', 'senate', 'house']):
-        record.add_field(
+    if request.holdings_data:
+        add_holdings_and_item_fields(host_rec, request.holdings_data)
+
+    host_id = crud.create_new_marc_record(db, host_rec.as_marc(), current_user.id)
+    # Re-read through unified resolver (ensures consistent downstream fetch)
+    host_rec = get_marc_by_id(host_id, include_edits=True)
+    host_title = get_title_from_record(host_rec)
+    host_w = _preferred_control_number(host_rec, str(host_id))
+    # Ensure it contains explicit LOCAL prefix if it's using the local ID
+    if not any(prefix in host_w for prefix in ['(OCoLC)', '(ORG)', '(LOCAL)']):
+        host_w = f"(LOCAL){host_id}"
+    _strip_existing_link_fields(host_rec)
+
+    for cid in child_ids:
+        child_rec = get_marc_by_id(cid, include_edits=True)
+        if not child_rec:
+            continue
+        _strip_existing_link_fields(child_rec)
+        child_title = get_title_from_record(child_rec)
+        child_w = _preferred_control_number(child_rec, str(cid))
+        # 774 on host
+        host_rec.add_field(
             Field(
-                tag='110',
-                indicators=['1', ' '],
+                tag='774',
+                indicators=['0', '8'],
                 subfields=[
-                    'a', 'United States.',
-                    'b', 'Congress.'
+                    Subfield('i', 'Contains (work):'),
+                    Subfield('t', child_title),
+                    Subfield('w', child_w)
                 ]
             )
         )
-    
-    # Add 590 field for local processing
-    record.add_field(
-        Field(
-            tag='590',
-            indicators=[' ', ' '],
-            subfields=[
-                'a', 'Boundwith host record created for cataloging government documents.'
-            ]
+        # 773 on child
+        child_rec.add_field(
+            Field(
+                tag='773',
+                indicators=['0', '8'],
+                subfields=[
+                    Subfield('i', 'Bound with:'),
+                    Subfield('t', host_title),
+                    Subfield('w', host_w)
+                ]
+            )
         )
-    )
-    
-    return record
+        crud.save_edited_record(db, cid, child_rec.as_marc(), current_user.id)
 
-# Helper functions for extracting data from MARC records
-def get_title_from_record(record):
-    """Extract title from a MARC record safely"""
-    # First check if record has a title() method
-    if hasattr(record, 'title') and callable(record.title):
-        try:
-            return record.title()
-        except Exception:
-            pass
-    
-    # If that fails, try to get title from 245 field
-    try:
-        for field in record.get_fields('245'):
-            title_parts = []
-            for code in ('a', 'b', 'p'):
-                subfields = field.get_subfields(code)
-                if subfields:
-                    title_parts.append(subfields[0])
-            if title_parts:
-                return ' '.join(title_parts)
-    except Exception:
-        pass
-    
-    # Fallback
-    return "Untitled Item"
+    crud.save_edited_record(db, host_id, host_rec.as_marc(), current_user.id)
 
-def get_oclc_number(record):
-    """Extract OCLC number from a MARC record"""
-    try:
-        for field in record.get_fields('035'):
-            for subfield in field.get_subfields('a'):
-                if '(OCoLC)' in subfield:
-                    return subfield
-    except Exception:
-        pass
-    return ""
+    return {
+        "status": "success",
+        "message": f"Created new host {host_id} with {len(child_ids)} constituents.",
+        "host_id": host_id,
+        "child_ids": child_ids
+    }
 
-def get_control_number(record):
-    """Extract control number from a MARC record"""
+# -------- Host Listing / Search --------
+
+@router.get("/boundwith/hosts")
+def list_boundwith_hosts(
+    q: str = Query("", description="Title contains"),
+    page: int = 1,
+    page_size: int = 25,
+    current_user = Depends(require_cataloger),
+    db: Session = Depends(get_db)
+):
+    """
+    Paginated list of created host (born-digital) records with child IDs.
+    Title filtering done in-memory after MARC parse (host count expected small).
+    """
+    if page < 1: page = 1
+    if page_size < 1: page_size = 25
+    query = db.query(models.SudocCreatedRecord).order_by(models.SudocCreatedRecord.created_at.desc())
+    total = query.count()
+    rows = query.offset((page - 1) * page_size).limit(page_size).all()
+
+    results = []
+    q_low = q.lower()
+    from io import BytesIO as _BytesIO
+    for row in rows:
+        rec = next(MARCReader(_BytesIO(row.marc_data), to_unicode=True, force_utf8=True), None)
+        if not rec:
+            continue
+        title = _extract_host_title(rec)
+        if q and q_low not in title.lower():
+            continue
+        children = _extract_child_ids(rec)
+        results.append({
+            "id": row.id,
+            "title": title,
+            "child_ids": children,
+            "child_count": len(children),
+            "created_at": row.created_at
+        })
+
+    return {
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "count": len(results),
+        "results": results
+    }
+
+@router.get("/boundwith/hosts/{host_id}")
+def boundwith_host_summary(
+    host_id: int,
+    current_user = Depends(require_cataloger),
+    db: Session = Depends(get_db)
+):
+    """
+    Summary for a single created host (title + child IDs).
+    """
+    row = db.query(models.SudocCreatedRecord).filter(models.SudocCreatedRecord.id == host_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Host not found")
+    from io import BytesIO as _BytesIO
+    rec = next(MARCReader(_BytesIO(row.marc_data), to_unicode=True, force_utf8=True), None)
+    if not rec:
+        raise HTTPException(status_code=500, detail="Corrupt MARC")
+    title = _extract_host_title(rec)
+    children = _extract_child_ids(rec)
+    return {
+        "id": host_id,
+        "title": title,
+        "child_ids": children,
+        "child_count": len(children),
+        "created_at": row.created_at
+    }
+
+@router.delete("/boundwith/hosts/{host_id}")
+def delete_boundwith_host(
+    host_id: int,
+    current_user = Depends(require_cataloger),
+    db: Session = Depends(get_db)
+):
+    """Delete a created host record and its boundwith relationships"""
+    # First check if the host record exists
+    row = db.query(models.SudocCreatedRecord).filter(models.SudocCreatedRecord.id == host_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Host not found")
+    
+    # Parse the MARC record to get child IDs
+    from io import BytesIO
+    rec = next(MARCReader(BytesIO(row.marc_data), to_unicode=True, force_utf8=True), None)
+    if rec:
+        # Get child IDs from 774 fields
+        child_ids = _extract_child_ids(rec)
+        
+        # For each child, remove the 773 link field
+        for cid in child_ids:
+            child_rec = get_marc_by_id(cid, include_edits=True)
+            if not child_rec:
+                continue
+                
+            # Remove 773 fields that link to this host
+            for field in list(child_rec.get_fields('773')):
+                # Check if this 773 links to our host
+                ws = field.get_subfields('w')
+                for w in ws:
+                    if f"(LOCAL:{host_id})" in w or str(host_id) in w:
+                        child_rec.remove_field(field)
+            
+            # Save the updated child record
+            crud.save_edited_record(db, cid, child_rec.as_marc(), current_user.id)
+    
+    # Delete the host record
+    db.delete(row)
+    db.commit()
+    
+    return {"message": f"Host record {host_id} deleted successfully"}
+
+@router.post("/cart/{cart_id}/hosts/{host_id}")
+def add_host_to_cart(
+    cart_id: int,
+    host_id: int,
+    include_children: bool = Query(False, description="Also add child records to cart"),
+    current_user = Depends(require_cataloger),
+    db: Session = Depends(get_db)
+):
+    """Add a host record to a cart, optionally with its children"""
+    # First verify the host record exists and is a host
+    host_info = get_record_with_boundwith_info(host_id)
+    if not host_info:
+        raise HTTPException(status_code=404, detail="Host record not found")
+        
+    if not host_info["isHost"]:
+        raise HTTPException(status_code=400, detail="Record is not a host record")
+    
+    # Add the host record to the cart
     try:
-        for field in record.get_fields('001'):
-            return field.data
-    except Exception:
-        pass
-    return ""
+        # Add host
+        crud.add_to_cart(db, cart_id, host_id)
+        
+        # Optionally add children
+        added_children = []
+        if include_children and host_info["childIds"]:
+            for child_id in host_info["childIds"]:
+                try:
+                    crud.add_to_cart(db, cart_id, child_id)
+                    added_children.append(child_id)
+                except Exception as e:
+                    # Continue even if one child fails
+                    print(f"Error adding child {child_id} to cart: {e}")
+                    
+        return {
+            "message": "Host added to cart successfully", 
+            "host_id": host_id,
+            "children_added": added_children if include_children else []
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Replace the existing lookup endpoint with this enhanced version
+@router.get("/lookup/{record_id}")
+async def lookup_record_info(
+    record_id: int,
+    include_children: bool = Query(False, description="Include child records for hosts"),
+    current_user = Depends(require_cataloger)
+):
+    """
+    Get comprehensive record info including boundwith relationships.
+    Works with all record types: created, edited, and original.
+    """
+    try:
+        # This will check PostgreSQL for edited/created records first, then SQLite
+        record_info = get_record_with_boundwith_info(record_id, include_children)
+        
+        if not record_info:
+            raise HTTPException(status_code=404, detail=f"Record {record_id} not found")
+            
+        return record_info
+        
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"Error retrieving record: {str(e)}")

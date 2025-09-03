@@ -1,14 +1,17 @@
 # backend/core/sudoc.py
 
-from pymarc import MARCReader, Record, MARCWriter  # Added MARCWriter
-from cachetools import LRUCache
+import io
 import os
 import sqlite3
+import re  # Add this import
 import zipfile
-import io
-from typing import Optional, List, Dict
+from io import BytesIO
+from typing import Optional, List, Dict, Union, Any
+from pymarc import MARCReader, Record, MARCWriter, Field, Subfield
+from cachetools import LRUCache
 from sqlalchemy.orm import Session
 from db import crud
+from db.session import SessionLocal
 
 BASE_DIR    = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SQLITE_PATH = os.path.join(BASE_DIR, "cgp_sudoc_index.db")
@@ -68,6 +71,9 @@ def get_record_fields(record_id: int) -> List[dict]:
 
 def _extract_fields_from_record(record) -> List[dict]:
     """Extract fields from a pymarc Record object"""
+    if not record:
+        return []
+        
     result = []
     for field in record.get_fields():
         if field.is_control_field():
@@ -80,23 +86,39 @@ def _extract_fields_from_record(record) -> List[dict]:
         else:
             subfields = {}
             
-            # The subfields attribute contains Subfield objects, not a flat list
-            # We need to iterate over them differently
+            # Handle different field structures based on pymarc version
             if hasattr(field, 'subfields') and field.subfields:
-                for subfield in field.subfields:
-                    # Each subfield is a Subfield object with .code and .value attributes
-                    if hasattr(subfield, 'code') and hasattr(subfield, 'value'):
+                # Modern pymarc stores subfields as a list of Subfield objects
+                if hasattr(field.subfields[0], 'code') and hasattr(field.subfields[0], 'value'):
+                    for subfield in field.subfields:
                         code = subfield.code
                         value = str(subfield.value)
                         
-                        # Handle repeated subfield codes by joining values
                         if code in subfields:
                             subfields[code] = subfields[code] + " ; " + value
                         else:
                             subfields[code] = value
-                    else:
-                        # Fallback: treat as string if not a proper Subfield object
-                        print(f"Unexpected subfield format: {subfield}")
+                # Older pymarc versions might store as alternating code/value
+                elif len(field.subfields) % 2 == 0:
+                    for i in range(0, len(field.subfields), 2):
+                        code = field.subfields[i]
+                        value = str(field.subfields[i+1])
+                        
+                        if code in subfields:
+                            subfields[code] = subfields[code] + " ; " + value
+                        else:
+                            subfields[code] = value
+                # Direct attribute access for another possible structure
+                else:
+                    for subfield in field.subfields:
+                        if hasattr(subfield, 'code') and hasattr(subfield, 'value'):
+                            code = subfield.code
+                            value = str(subfield.value)
+                            
+                            if code in subfields:
+                                subfields[code] = subfields[code] + " ; " + value
+                            else:
+                                subfields[code] = value
             
             result.append({
                 "tag": field.tag,
@@ -108,37 +130,35 @@ def _extract_fields_from_record(record) -> List[dict]:
     return result
 
 def get_marc_by_id(record_id: int, include_edits: bool = True):
-    """Get MARC record by ID, checking for edited version first, then falling back to original"""
+    """Get MARC record by ID, checking PostgreSQL first, then SQLite"""
+    print(f"DEBUG: get_marc_by_id({record_id}, include_edits={include_edits})")
     
-    if include_edits:
-        # First, try to get edited version from database
-        try:
-            from db.session import get_db
-            from db import crud
-            
-            db = next(get_db())
-            try:
-                edited_record = crud.get_edited_record(db, record_id)
-                if edited_record:
-                    # Found edited version - use it
-                    from pymarc import Record
-                    record = Record(data=edited_record.marc_data)
-                    return record
-            finally:
-                db.close()
-        except Exception as e:
-            print(f"Error checking for edited record {record_id}: {e}")
+    # Check PostgreSQL if edits should be included
+    with SessionLocal() as db:
+        if include_edits:
+            ov = crud.get_latest_edited_overlay(db, record_id)
+            if ov:
+                print(f"DEBUG: Found edited record {record_id} in PostgreSQL")
+                rec = next(MARCReader(BytesIO(ov.marc_data), to_unicode=True, force_utf8=True), None)
+                if rec:
+                    return rec
+        
+        # Check for created record
+        created = crud.get_created_record(db, record_id)
+        if created:
+            print(f"DEBUG: Found created record {record_id} in PostgreSQL")
+            rec = next(MARCReader(BytesIO(created.marc_data), to_unicode=True, force_utf8=True), None)
+            if rec:
+                return rec
     
-    # Check cache for original record
-    cache_key = f"marc_{record_id}"
-    if cache_key in marc_record_cache:
-        return marc_record_cache[cache_key]
+    # Check SQLite as fallback
+    sqlite_record = _get_original_marc_by_id(record_id)
+    if sqlite_record:
+        print(f"DEBUG: Found original record {record_id} in SQLite")
+    else:
+        print(f"DEBUG: Record {record_id} not found in either database")
     
-    # Not in cache, retrieve from file
-    record = _get_original_marc_by_id(record_id)
-    if record:
-        marc_record_cache[cache_key] = record
-    return record
+    return sqlite_record
 
 def _get_original_marc_by_id(record_id: int):
     """Get MARC record using byte offset for direct access"""
@@ -225,3 +245,473 @@ def save_marc_record(record_id: int, record: Record) -> bool:
     except Exception as e:
         print(f"Error saving record: {e}")
         return False
+
+# === New utility functions for MARC record processing ===
+
+def get_title_from_record(rec: Record) -> str:
+    """Extract title from a MARC record's 245 field"""
+    f245 = rec.get_fields('245')
+    if not f245:
+        return "Untitled"
+    field = f245[0]
+    a = field.get_subfields('a')
+    b = field.get_subfields('b')
+    title = (a[0] if a else "") + (" " + b[0] if b else "")
+    return title.strip(" /:;") or "Untitled"
+
+def get_control_number(rec: Record) -> Optional[str]:
+    """Get control number from 001 field"""
+    f001 = rec.get_fields('001')
+    if f001:
+        return getattr(f001[0], 'data', None)
+    return None
+
+def get_oclc_number(rec: Record) -> Optional[str]:
+    """Extract OCLC number from 035$a or 019$a field"""
+    # Look in 035 $a for (OCoLC)
+    for f in rec.get_fields('035'):
+        subs = f.get_subfields('a')
+        for s in subs:
+            if '(OCoLC' in s:
+                return s
+    # Sometimes 019 has former OCLC numbers
+    for f in rec.get_fields('019'):
+        subs = f.get_subfields('a')
+        for s in subs:
+            if s.isdigit():
+                return f"(OCoLC){s}"
+    return None
+
+def create_government_series_host_record(
+    title: str,
+    series: Optional[str],
+    publisher: Optional[str],
+    series_number: Optional[str],
+    year: Optional[str],
+    subjects: Optional[List[str]]
+) -> Record:
+    """Create a new MARC record for a government series host"""
+    rec = Record(force_utf8=True)
+    rec.leader = "00000nam a2200000   4500"
+    # 008 (very basic placeholder)
+    fixed_year = (year or "||||")[:4].rjust(4, ' ')
+    rec.add_field(Field(tag='008', data=f"{fixed_year}|||||||||||||||||||||||||||||eng|d"))
+    # 245
+    rec.add_field(Field(tag='245', indicators=['0','0'], subfields=[
+        Subfield('a', title.rstrip(' /:;') + '.')
+    ]))
+    # Series (490 + 830)
+    if series:
+        rec.add_field(Field(tag='490', indicators=['0','0'], subfields=[
+            Subfield('a', series + (f" ; {series_number}" if series_number else ""))
+        ]))
+        rec.add_field(Field(tag='830', indicators=[' ','0'], subfields=[
+            Subfield('a', series + (f". {series_number}" if series_number else ""))
+        ]))
+    # Publisher (264)
+    if publisher or year:
+        subs = []
+        if publisher: subs.append(Subfield('b', publisher))
+        if year: subs.append(Subfield('c', year))
+        if subs:
+            subs.insert(0, Subfield('a', '[Place of publication not identified]'))
+            rec.add_field(Field(tag='264', indicators=[' ','1'], subfields=subs))
+    # Subjects
+    if subjects:
+        for s in subjects:
+            if s:
+                rec.add_field(Field(tag='650', indicators=[' ','0'], subfields=[
+                    Subfield('a', s)
+                ]))
+    return rec
+
+def add_holdings_and_item_fields(rec: Record, h) -> None:
+    """
+    Add 852 (holdings) and 945 (local item) fields to host record.
+    h: HoldingsItemData
+    852: $b location_code, $h call_number
+    945: $l location_code, $i barcode, $c call_number, $n enumeration/chronology, $p item_policy
+    """
+    # Remove any prior 852/945 we added earlier (simple de-dup)
+    for tag in ('852','945'):
+        for f in list(rec.get_fields(tag)):
+            rec.remove_field(f)
+
+    # 852
+    subfields_852 = []
+    if getattr(h, 'location_code', None):
+        subfields_852.append(Subfield('b', h.location_code))
+    if getattr(h, 'call_number', None):
+        subfields_852.append(Subfield('h', h.call_number))
+    if subfields_852:
+        rec.add_field(Field(tag='852', indicators=[' ',' '], subfields=subfields_852))
+
+    # 945 (local item)
+    sf945 = []
+    if getattr(h, 'location_code', None): sf945.append(Subfield('l', h.location_code))
+    if getattr(h, 'barcode', None):       sf945.append(Subfield('i', h.barcode))
+    if getattr(h, 'call_number', None):   sf945.append(Subfield('c', h.call_number))
+    if getattr(h, 'enumeration', None):   sf945.append(Subfield('n', h.enumeration))
+    if getattr(h, 'chronology', None):    sf945.append(Subfield('n', h.chronology))
+    if getattr(h, 'item_policy', None):   sf945.append(Subfield('p', h.item_policy))
+    if sf945:
+        rec.add_field(Field(tag='945', indicators=[' ',' '], subfields=sf945))
+
+def _preferred_control_number(record: Record, fallback_local: str) -> str:
+    """Get the preferred control number for linking fields"""
+    # First try OCLC number
+    oclc = get_oclc_number(record)
+    if oclc:
+        return oclc if '(OCoLC)' in oclc else f"(OCoLC){oclc}"
+    
+    # Next try system control number from 001
+    cn = get_control_number(record)
+    if cn:
+        return f"(ORG){cn}" if not cn.startswith('(') else cn
+        
+    # Fallback to local ID with explicit format
+    return f"(LOCAL){fallback_local}"
+
+def _strip_existing_link_fields(rec: Record):
+    """Remove prior normalized 773/774 (ind2==8) to avoid duplicates."""
+    remove = []
+    for f in rec.get_fields('773', '774'):
+        if f.indicator2 == '8':
+            remove.append(f)
+    for f in remove:
+        rec.remove_field(f)
+
+def _extract_host_title(record: Record) -> str:
+    """Extract title from host record for display"""
+    f245 = record.get_fields('245')
+    if not f245:
+        return "Host"
+    field = f245[0]
+    parts = []
+    for code in ('a', 'b', 'p'):
+        vals = field.get_subfields(code)
+        if vals:
+            parts.append(vals[0])
+    title = ' '.join(parts).strip(' /:;')
+    return title or "Host"
+
+# Add this function to lookup records by OCLC number
+def get_record_by_oclc(oclc_number: str):
+    """Find a record by its OCLC number"""
+    print(f"DEBUG: Looking up record by OCLC number: {oclc_number}")
+    
+    # First check PostgreSQL for any records with this OCLC
+    try:
+        with SessionLocal() as db:
+            # Try created records first
+            created_records = crud.get_records_by_oclc(db, oclc_number, created_only=True)
+            if created_records and len(created_records) > 0:
+                print(f"DEBUG: Found created record with OCLC {oclc_number}")
+                rec = next(MARCReader(BytesIO(created_records[0].marc_data), to_unicode=True, force_utf8=True), None)
+                if rec:
+                    return rec, created_records[0].id
+                
+            # Then edited records
+            edited_records = crud.get_records_by_oclc(db, oclc_number, created_only=False)
+            if edited_records and len(edited_records) > 0:
+                print(f"DEBUG: Found edited record with OCLC {oclc_number}")
+                rec = next(MARCReader(BytesIO(edited_records[0].marc_data), to_unicode=True, force_utf8=True), None)
+                if rec:
+                    return rec, edited_records[0].id
+    except Exception as e:
+        print(f"DEBUG: Error checking PostgreSQL for OCLC {oclc_number}: {e}")
+    
+    # Then check SQLite
+    try:
+        with sqlite3.connect(SQLITE_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM records WHERE oclc = ?", (oclc_number,))
+            row = cursor.fetchone()
+            if row:
+                record_id = row['id']
+                record = _get_original_marc_by_id(record_id)
+                if record:
+                    print(f"DEBUG: Found SQLite record with OCLC {oclc_number}, ID={record_id}")
+                    return record, record_id
+    except Exception as e:
+        print(f"DEBUG: Error checking SQLite for OCLC {oclc_number}: {e}")
+        
+    print(f"DEBUG: No record found with OCLC {oclc_number}")
+    return None, None
+
+
+# Modify the _extract_child_ids function to return more information about child records
+def _extract_child_ids(record):
+    """Extract child record information from 774 fields"""
+    if not record:
+        return []
+        
+    child_info = []
+    for field in record.get_fields('774'):
+        print(f"DEBUG: Found 774 field: {field}")
+        
+        # Get the title from subfield t
+        title = None
+        for t in field.get_subfields('t'):
+            title = t
+            break
+            
+        for w in field.get_subfields('w'):
+            print(f"DEBUG: Processing subfield w with value: '{w}'")
+            
+            # Check if this is an OCLC number
+            oclc_match = re.search(r'\(OCoLC\)(\d+)', w)
+            if oclc_match:
+                oclc_number = oclc_match.group(1)
+                print(f"DEBUG: Found OCLC number: {oclc_number}")
+                
+                # Try to find the record by OCLC number
+                record, record_id = get_record_by_oclc(oclc_number)
+                
+                if record_id:
+                    child_info.append({
+                        "id": record_id,
+                        "oclc": oclc_number,
+                        "title": title or get_title_from_record(record) or f"Record {record_id}"
+                    })
+                else:
+                    # We didn't find the record, but still add the OCLC info
+                    child_info.append({
+                        "id": None,  # No internal ID found
+                        "oclc": oclc_number,
+                        "title": title or f"OCLC {oclc_number} (Not Found)"
+                    })
+                continue
+                
+            # Regular ID extraction
+            m = re.search(r'\(LOCAL:?(\d+)\)', w) or re.search(r'\b(\d{1,10})\b', w)
+            if m:
+                try:
+                    child_id = int(m.group(1))
+                    print(f"DEBUG: Extracted child ID: {child_id} from '{w}'")
+                    
+                    # Check if this record exists
+                    record = get_marc_by_id(child_id, include_edits=True)
+                    if record:
+                        child_info.append({
+                            "id": child_id,
+                            "oclc": get_oclc_number(record) or "",
+                            "title": title or get_title_from_record(record) or f"Record {child_id}"
+                        })
+                    else:
+                        print(f"DEBUG: Child record {child_id} not found")
+                        child_info.append({
+                            "id": child_id,
+                            "oclc": "",
+                            "title": title or f"Record {child_id} (Not Found)"
+                        })
+                except Exception as e:
+                    print(f"DEBUG: Failed to extract ID from '{w}': {e}")
+                    
+    print(f"DEBUG: Total child records found: {len(child_info)}")
+    return child_info
+
+
+# Then modify get_record_with_boundwith_info to use the enhanced _extract_child_ids function
+def get_record_with_boundwith_info(record_id: int, include_child_records: bool = False) -> Dict[str, Any]:
+    """
+    Get record with boundwith relationship info.
+    Handles both edited/created records (PostgreSQL) and original records (SQLite).
+    """
+    # First get the MARC record through our standard resolver
+    record = get_marc_by_id(record_id, include_edits=True)
+    if not record:
+        return None
+        
+    # Get record source info
+    is_created = False
+    is_edited = False
+    
+    with SessionLocal() as db:
+        created = crud.get_created_record(db, record_id)
+        if created:
+            is_created = True
+        else:
+            edited = crud.get_latest_edited_overlay(db, record_id)
+            if edited:
+                is_edited = True
+    
+    # Basic record info
+    result = {
+        "id": record_id,
+        "title": get_title_from_record(record),
+        "isHost": False,
+        "childIds": [],
+        "hostId": None,
+        "isCreated": is_created,
+        "isEdited": is_edited,
+    }
+    
+    # Extract SuDoc and OCLC information
+    oclc = get_oclc_number(record) or ""
+    
+    # Try to extract SUDOC from call number fields
+    sudoc = ""
+    for field in record.get_fields('050', '055', '060', '070', '080', '082', '086'):
+        for a in field.get_subfields('a'):
+            if re.search(r'[A-Z]\d', a):  # Simple heuristic for SuDoc pattern
+                sudoc = a
+                break
+        if sudoc:
+            break
+    
+    result["sudoc"] = sudoc
+    result["oclc"] = oclc
+    
+    # Check if this is a host record (has 774 fields)
+    child_info = _extract_child_ids(record)
+    if child_info:
+        result["isHost"] = True
+        # Extract just the IDs for the childIds array
+        result["childIds"] = [child["id"] for child in child_info if child["id"]]
+        result["childRecords"] = []
+        
+        # Include the full child info for display even when no record exists
+        if include_child_records:
+            result["childRecords"] = child_info
+    
+    # Check if this is a child record (has 773 fields)
+    for field in record.get_fields('773'):
+        ws = field.get_subfields('w')
+        for w in ws:
+            # Look for (LOCAL:<digits>) or bare digits
+            m = re.search(r'\(LOCAL:?(\d+)\)', w) or re.search(r'\b(\d{1,10})\b', w)
+            if m:
+                try:
+                    host_id = int(m.group(1))
+                    result["hostId"] = host_id
+                    break
+                except:
+                    pass
+        if result["hostId"]:
+            break
+            
+    return result
+
+def _extract_child_ids(record):
+    """Extract child record information from 774 fields"""
+    if not record:
+        return []
+        
+    child_info = []
+    for field in record.get_fields('774'):
+        # Get the title from subfield t
+        title = None
+        for t in field.get_subfields('t'):
+            title = t
+            break
+            
+        for w in field.get_subfields('w'):
+            # Check if this is an OCLC number
+            oclc_match = re.search(r'\(OCoLC\)(\d+)', w)
+            if oclc_match:
+                oclc_number = oclc_match.group(1)
+                
+                # Try to find the record by OCLC number
+                record, record_id = get_record_by_oclc(oclc_number)
+                
+                if record_id:
+                    child_info.append({
+                        "id": record_id,
+                        "oclc": oclc_number,
+                        "title": title or get_title_from_record(record) or f"Record {record_id}"
+                    })
+                else:
+                    # We didn't find the record, but still add the OCLC info
+                    child_info.append({
+                        "id": None,  # No internal ID found
+                        "oclc": oclc_number,
+                        "title": title or f"OCLC {oclc_number} (Not Found)"
+                    })
+                continue
+                
+            # Regular ID extraction
+            m = re.search(r'\(LOCAL:?(\d+)\)', w) or re.search(r'\b(\d{1,10})\b', w)
+            if m:
+                try:
+                    child_id = int(m.group(1))
+                    
+                    # Check if this record exists
+                    record = get_marc_by_id(child_id, include_edits=True)
+                    if record:
+                        child_info.append({
+                            "id": child_id,
+                            "oclc": get_oclc_number(record) or "",
+                            "title": title or get_title_from_record(record) or f"Record {child_id}"
+                        })
+                    else:
+                        child_info.append({
+                            "id": child_id,
+                            "oclc": "",
+                            "title": title or f"Record {child_id} (Not Found)"
+                        })
+                except Exception:
+                    pass
+                    
+    return child_info
+
+def get_record_by_oclc(oclc_number: str):
+    """Find a record by its OCLC number"""
+    # First check PostgreSQL for any records with this OCLC
+    try:
+        with SessionLocal() as db:
+            # Try created records first
+            created_records = crud.get_records_by_oclc(db, oclc_number, created_only=True)
+            if created_records and len(created_records) > 0:
+                rec = next(MARCReader(BytesIO(created_records[0].marc_data), to_unicode=True, force_utf8=True), None)
+                if rec:
+                    return rec, created_records[0].id
+                
+            # Then edited records
+            edited_records = crud.get_records_by_oclc(db, oclc_number, created_only=False)
+            if edited_records and len(edited_records) > 0:
+                rec = next(MARCReader(BytesIO(edited_records[0].marc_data), to_unicode=True, force_utf8=True), None)
+                if rec:
+                    return rec, edited_records[0].id
+    except Exception:
+        pass
+    
+    # Then check SQLite
+    try:
+        with sqlite3.connect(SQLITE_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM records WHERE oclc = ?", (oclc_number,))
+            row = cursor.fetchone()
+            if row:
+                record_id = row['id']
+                record = _get_original_marc_by_id(record_id)
+                if record:
+                    return record, record_id
+    except Exception:
+        pass
+        
+    return None, None
+
+def get_marc_by_id(record_id: int, include_edits: bool = True):
+    """Get MARC record by ID, checking PostgreSQL first, then SQLite"""
+    # Check PostgreSQL if edits should be included
+    with SessionLocal() as db:
+        if include_edits:
+            ov = crud.get_latest_edited_overlay(db, record_id)
+            if ov:
+                rec = next(MARCReader(BytesIO(ov.marc_data), to_unicode=True, force_utf8=True), None)
+                if rec:
+                    return rec
+        
+        # Check for created record
+        created = crud.get_created_record(db, record_id)
+        if created:
+            rec = next(MARCReader(BytesIO(created.marc_data), to_unicode=True, force_utf8=True), None)
+            if rec:
+                return rec
+    
+    # Check SQLite as fallback
+    sqlite_record = _get_original_marc_by_id(record_id)
+    return sqlite_record

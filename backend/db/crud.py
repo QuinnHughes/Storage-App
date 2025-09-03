@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.dialects.postgresql import insert
 from typing import List, Optional 
 from datetime import datetime
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, desc
 from . import models
 from .models import User
 from schemas.item import ItemCreate
@@ -368,98 +368,36 @@ def add_to_cart(db: Session, cart_id: int, record_id: int) -> models.SudocCartIt
     db.refresh(item)
     return item
 
-def save_edited_record(db: Session, record_id: int, marc_data: bytes, user_id: int):
-    """Save an edited MARC record"""
-    # Check if an edited version already exists
-    existing = db.query(models.SudocEditedRecord).filter(
-        models.SudocEditedRecord.record_id == record_id
-    ).first()
-    
-    if existing:
-        # Update existing edited record
-        existing.marc_data = marc_data
-        existing.edited_by = user_id
-        existing.edited_at = func.now()
-    else:
-        # Create new edited record
-        edited_record = models.SudocEditedRecord(
-            record_id=record_id,
-            marc_data=marc_data,
-            edited_by=user_id
-        )
-        db.add(edited_record)
-    
-    db.commit()
-
-def get_edited_record(db: Session, record_id: int):
-    """Get edited version of a record if it exists"""
-    return db.query(models.SudocEditedRecord).filter(
-        models.SudocEditedRecord.record_id == record_id
-    ).first()
-
-def delete_cart(db: Session, cart_id: int):
-    cart = db.query(models.SudocCart).filter(models.SudocCart.id == cart_id).first()
-    if not cart:
-        raise HTTPException(status_code=404, detail="Cart not found")
-        
-    # Delete all items in the cart
-    db.query(models.SudocCartItem).filter(models.SudocCartItem.cart_id == cart_id).delete()
-    
-    # Delete the cart itself
-    db.delete(cart)
-    db.commit()
-    return True
-
-def remove_from_cart(db: Session, cart_id: int, record_id: int):
-    """Remove a record from a cart"""
-    # Find the cart item
-    cart_item = db.query(models.SudocCartItem).filter(
-        models.SudocCartItem.cart_id == cart_id,
-        models.SudocCartItem.record_id == record_id
-    ).first()
-    
-    if not cart_item:
-        raise ValueError("Item not found in cart")
-    
-    # Remove the item
-    db.delete(cart_item)
-    db.commit()
-    
-    return True
-
-def create_new_marc_record(db: Session, marc_data: bytes, user_id: int) -> int:
-    """
-    Create a new MARC record in the database
-    Returns the ID of the new record
-    """
-    from pymarc import Record, MARCReader
-    from io import BytesIO
-    import uuid
-    
-    # Parse the MARC data to extract info
-    reader = MARCReader(BytesIO(marc_data), to_unicode=True)
-    record = next(reader)
-    
-    # Extract title for reference
-    title = "Unknown"
-    for field in record.get_fields('245'):
-        for subfield in field.get_subfields('a'):
-            title = subfield
-            break
-    
-    # Create a new record in the database
-    # This is a simplified version - adjust according to your actual model structure
-    record_id = str(uuid.uuid4())
-    new_record = models.SudocRecord(
+def save_edited_record(db: Session, record_id: int, marc_data: bytes, user_id: int | None):
+    overlay = models.SudocEditedRecord(
         record_id=record_id,
-        title=title,
         marc_data=marc_data,
-        created_by=user_id,
-        created_at=datetime.now()
+        edited_by=user_id
     )
-    
-    db.add(new_record)
+    db.add(overlay)
     db.commit()
-    db.refresh(new_record)
-    
-    return new_record.id
+
+def get_latest_edited_overlay(db: Session, record_id: int):
+    return (
+        db.query(models.SudocEditedRecord)
+        .filter(models.SudocEditedRecord.record_id == record_id)
+        .order_by(desc(models.SudocEditedRecord.edited_at))
+        .first()
+    )
+
+def create_new_marc_record(db: Session, marc_data: bytes, user_id: int | None) -> int:
+    rec = models.SudocCreatedRecord(marc_data=marc_data, created_by=user_id)
+    db.add(rec)
+    db.commit()
+    db.refresh(rec)
+    return rec.id
+
+def get_created_record(db: Session, record_id: int):
+    return db.query(models.SudocCreatedRecord).filter(models.SudocCreatedRecord.id == record_id).first()
+
+def get_records_by_oclc(db: Session, oclc: str, created_only: bool = False):
+    """Get records by OCLC number"""
+    if created_only:
+        return db.query(models.CreatedRecord).filter(models.CreatedRecord.oclc == oclc).all()
+    else:
+        return db.query(models.EditedRecord).filter(models.EditedRecord.oclc == oclc).all()

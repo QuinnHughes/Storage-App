@@ -144,3 +144,13 @@ class SudocRecord(Base):
     marc_data = Column(LargeBinary)
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.now)  # This will work now
+
+class SudocCreatedRecord(Base):
+    """
+    Born-digital MARC (e.g., boundwith host) with no CGP source.
+    """
+    __tablename__ = "sudoc_created_records"
+    id         = Column(Integer, primary_key=True, index=True)
+    marc_data  = Column(LargeBinary, nullable=False)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

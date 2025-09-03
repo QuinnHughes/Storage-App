@@ -4,7 +4,7 @@ import apiFetch from '../api/client';
 import { useSudocCarts } from '../hooks/useSudocCarts';
 
 // Boundwith Modal Component
-function BoundwithModal({ isOpen, onClose, currentRecord }) {
+function BoundwithModal({ isOpen, onClose, currentRecord, onBoundwithCreated }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [selectedRecords, setSelectedRecords] = useState([]);
@@ -19,6 +19,14 @@ function BoundwithModal({ isOpen, onClose, currentRecord }) {
   const [hostSeriesNumber, setHostSeriesNumber] = useState("");
   const [hostSubjects, setHostSubjects] = useState([]);
   const [hostYear, setHostYear] = useState(new Date().getFullYear().toString());
+  
+  // Holdings and item information
+  const [holdingsLocation, setHoldingsLocation] = useState("main");
+  const [holdingsCallNumber, setHoldingsCallNumber] = useState("");
+  const [itemBarcode, setItemBarcode] = useState("");
+  const [itemPolicy, setItemPolicy] = useState("book");
+  const [itemEnumeration, setItemEnumeration] = useState("");
+  const [itemChronology, setItemChronology] = useState("");
   
   // Add current record to selected by default
   useEffect(() => {
@@ -353,6 +361,16 @@ function BoundwithModal({ isOpen, onClose, currentRecord }) {
       return;
     }
 
+    if (!holdingsLocation) {
+      alert("Location is required for holdings creation");
+      return;
+    }
+
+    if (!itemBarcode && createMode === "new-host") {
+      const proceed = window.confirm("No barcode provided. This will create a boundwith without a physical item record. Continue anyway?");
+      if (!proceed) return;
+    }
+
     try {
       // Call API to create boundwith relationship
       const res = await apiFetch('/catalog/sudoc/boundwith', {
@@ -372,13 +390,55 @@ function BoundwithModal({ isOpen, onClose, currentRecord }) {
             series_number: hostSeriesNumber,
             year: hostYear,
             subjects: hostSubjects
-          } : null
+          } : null,
+          holdings_data: {
+            location_code: holdingsLocation,
+            call_number: holdingsCallNumber,
+            barcode: itemBarcode,
+            item_policy: itemPolicy,
+            enumeration: itemEnumeration,
+            chronology: itemChronology
+          }
         })
       });
 
       if (res.ok) {
         const data = await res.json();
         alert(`Boundwith relationship created successfully! ${data.message || ''}`);
+
+        // Build host + children context for parent editor
+        if (onBoundwithCreated) {
+          if (createMode === "new-host") {
+            // New host: we have title from form; children are selectedRecords
+            onBoundwithCreated({
+              mode: 'new-host',
+              host: {
+                id: data.host_id,
+                title: hostTitle || 'Host Record',
+                sudoc: '',
+                oclc: '',
+                isHost: true,
+                childIds: data.child_ids || selectedRecords.map(r => r.id)
+              },
+              children: selectedRecords
+            });
+          } else {
+            // Existing host: mainRecord becomes host
+            onBoundwithCreated({
+              mode: 'existing',
+              host: {
+                id: data.host_id,
+                title: mainRecord.title,
+                sudoc: mainRecord.sudoc,
+                oclc: mainRecord.oclc,
+                isHost: true,
+                childIds: data.child_ids
+              },
+              children: selectedRecords.filter(r => r.id !== mainRecord.id)
+            });
+          }
+        }
+
         onClose();
       } else {
         const error = await res.text();
@@ -503,6 +563,96 @@ function BoundwithModal({ isOpen, onClose, currentRecord }) {
             </div>
           </div>
         )}
+        
+        {/* Holdings & Item Information */}
+        <div className="mb-6 border p-4 rounded-lg">
+          <h4 className="font-medium mb-3">Holdings & Item Information</h4>
+          <p className="text-sm text-gray-600 mb-4">
+            This information will be used to create holdings and item records in ALMA.
+          </p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Location</label>
+              <select
+                value={holdingsLocation}
+                onChange={(e) => setHoldingsLocation(e.target.value)}
+                className="w-full border rounded px-3 py-2"
+              >
+                <option value="ssd">Storage Documents</option>
+                <option value="mmd">Morgan Documents</option>
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium mb-1">Call Number</label>
+              <input
+                type="text"
+                value={holdingsCallNumber}
+                onChange={(e) => setHoldingsCallNumber(e.target.value)}
+                className="w-full border rounded px-3 py-2"
+                placeholder="Call number for shelving"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium mb-1">Barcode</label>
+              <input
+                type="text"
+                value={itemBarcode}
+                onChange={(e) => setItemBarcode(e.target.value)}
+                className="w-full border rounded px-3 py-2"
+                placeholder="Item barcode"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium mb-1">Item Policy</label>
+              <select
+                value={itemPolicy}
+                onChange={(e) => setItemPolicy(e.target.value)}
+                className="w-full border rounded px-3 py-2"
+              >
+                <option value="serial">Serial</option>
+                <option value="periodical">Periodical</option>
+                <option value="monograph">Monograph</option>
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium mb-1">Enumeration</label>
+              <input
+                type="text"
+                value={itemEnumeration}
+                onChange={(e) => setItemEnumeration(e.target.value)}
+                className="w-full border rounded px-3 py-2"
+                placeholder="v.1, pt.2, etc."
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium mb-1">Chronology</label>
+              <input
+                type="text"
+                value={itemChronology}
+                onChange={(e) => setItemChronology(e.target.value)}
+                className="w-full border rounded px-3 py-2"
+                placeholder="2023, Jan-Mar, etc."
+              />
+            </div>
+          </div>
+        </div>
+        
+        <div className="mt-2 text-xs text-gray-500">
+          <p className="mb-1">
+            <strong>Note:</strong> For proper ALMA import, at minimum you should provide:
+          </p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Location (required for holdings)</li>
+            <li>Call number (used for shelving)</li>
+            <li>Barcode (unique identifier for the physical item)</li>
+          </ul>
+        </div>
         
         {/* Search section */}
         <div className="mb-6">
@@ -635,23 +785,384 @@ function BoundwithModal({ isOpen, onClose, currentRecord }) {
   );
 }
 
-export default function SudocEditor() {
-  const [records, setRecords] = useState([]);             // checked-out items
-  const [selectedId, setSelectedId] = useState(null);     // currently viewed
-  const [marcFields, setMarcFields] = useState({});       // { [id]: MarcFieldOut[] | null }
+function CreatedHostsModal({ isOpen, onClose, onLoadHost }) {
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(25);
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState({ results: [], page: 1, total: 0, count: 0 });
+
+  const fetchHosts = async () => {
+    if (!isOpen) return;
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/catalog/sudoc/boundwith/hosts?q=${encodeURIComponent(q)}&page=${page}&page_size=${pageSize}`, {
+        headers: localStorage.getItem("token") ? { Authorization: `Bearer ${localStorage.getItem("token")}` } : {}
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setData(json);
+      }
+    } catch (e) {
+      console.error("Failed to load created hosts", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchHosts(); /* eslint-disable-next-line */ }, [isOpen, page]);
+
+  const onSearch = (e) => {
+    e.preventDefault();
+    setPage(1);
+    fetchHosts();
+  };
+
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-6 overflow-auto">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <h3 className="text-lg font-semibold">Created Boundwith Hosts</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">✕</button>
+        </div>
+        <form onSubmit={onSearch} className="px-5 py-3 flex gap-2 border-b">
+          <input
+            type="text"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search host title..."
+            className="flex-1 border rounded px-3 py-2 text-sm"
+          />
+          <button
+            type="submit"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded"
+            disabled={loading}
+          >
+            {loading ? "Searching..." : "Search"}
+          </button>
+        </form>
+        <div className="max-h-[50vh] overflow-y-auto divide-y">
+          {loading && <div className="p-4 text-sm text-gray-500">Loading...</div>}
+          {!loading && data.results.length === 0 && (
+            <div className="p-4 text-sm text-gray-500">No hosts found.</div>
+          )}
+          {data.results.map(r => (
+            <div key={r.id} className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex-1">
+                <div className="font-medium text-sm">{r.title}</div>
+                <div className="text-xs text-gray-500">
+                  ID #{r.id} • {r.child_ids.length} constituent{r.child_ids.length !== 1 && 's'}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onLoadHost(r)}
+                  className="px-3 py-1.5 text-xs bg-green-600 hover:bg-green-700 text-white rounded"
+                >Load</button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="px-5 py-3 flex items-center justify-between border-t text-xs">
+          <div>
+            Page {data.page} • Showing {data.count} • Total {data.total}
+          </div>
+            <div className="flex gap-2">
+              <button
+                className="px-2 py-1 border rounded disabled:opacity-40"
+                disabled={page <= 1}
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+              >Prev</button>
+              <button
+                className="px-2 py-1 border rounded disabled:opacity-40"
+                disabled={data.count < pageSize}
+                onClick={() => setPage(p => p + 1)}
+              >Next</button>
+            </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HostBrowserModal({ isOpen, onClose, onLoadHost, carts = [], selectedCart }) {
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(25);
+  const [loading, setLoading] = useState(false);
+  const [rows, setRows] = useState([]);
+  const [meta, setMeta] = useState({ page: 1, count: 0 });
+  const [expanded, setExpanded] = useState(new Set());
+
+  const fetchHosts = async () => {
+    if (!isOpen) return;
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/catalog/sudoc/boundwith/hosts?q=${encodeURIComponent(q)}&page=${page}&page_size=${pageSize}`, {
+        headers: localStorage.getItem("token") ? { Authorization: `Bearer ${localStorage.getItem("token")}` } : {}
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setRows(json.results);
+        setMeta({ page: json.page, count: json.count });
+      }
+    } catch (e) {
+      console.error("Host search failed", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchHosts(); /* eslint-disable-next-line */ }, [isOpen, page]);
+
+  const toggleExpand = (id) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  // New function to handle adding host record to cart
+  const handleAddToCart = async (hostRecord, includeChildren = false) => {
+    if (!selectedCart) { // Now selectedCart is defined as a prop
+      alert("Please select a cart first");
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      const response = await apiFetch(
+        `/catalog/sudoc/cart/${selectedCart}/hosts/${hostRecord.id}?include_children=${includeChildren}`,
+        { 
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`
+          }
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error("Failed to add to cart");
+      }
+      
+      const data = await response.json();
+      alert(includeChildren 
+        ? `Added host and ${data.children_added.length} children to cart` 
+        : "Added host record to cart"
+      );
+      return true;
+    } catch (error) {
+      console.error("Error adding host to cart:", error);
+      alert("Failed to add to cart");
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteHost = async (hostId) => {
+    if (!confirm(`Are you sure you want to delete host record #${hostId}?`)) {
+      return;
+    }
+    
+    try {
+      const token = localStorage.getItem("token");
+      const res = await apiFetch(`/catalog/sudoc/boundwith/hosts/${hostId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
+      if (res.ok) {
+        // Remove from local state
+        setRows(rows.filter(r => r.id !== hostId));
+        alert(`Host record #${hostId} deleted successfully`);
+      } else {
+        alert('Failed to delete host record');
+      }
+    } catch (err) {
+      console.error('Error deleting host:', err);
+      alert('Error deleting host record');
+    }
+  };
+  
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-6 overflow-auto">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <h3 className="text-lg font-semibold">Boundwith Hosts</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">✕</button>
+        </div>
+        <div className="px-5 py-3 border-b flex gap-2">
+          <input
+            className="flex-1 border rounded px-3 py-2 text-sm"
+            placeholder="Search host title..."
+            value={q}
+            onChange={e => { setQ(e.target.value); setPage(1); }}
+            onKeyDown={e => { if (e.key === 'Enter') fetchHosts(); }}
+          />
+          <button
+            onClick={() => { setPage(1); fetchHosts(); }}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded"
+            disabled={loading}
+          >
+            {loading ? "Searching..." : "Search"}
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-100 text-gray-600 uppercase text-xs">
+              <tr>
+                <th className="p-2 w-10"></th>
+                <th className="p-2 text-left">Title</th>
+                <th className="p-2 w-24 text-center">Children</th>
+                <th className="p-2 w-40">Created</th>
+                <th className="p-2 w-36"></th> {/* Wider column for buttons */}
+              </tr>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr><td colSpan={5} className="p-4 text-center text-gray-500">Loading…</td></tr>
+              )}
+              {!loading && rows.length === 0 && (
+                <tr><td colSpan={5} className="p-4 text-center text-gray-500">No hosts found.</td></tr>
+              )}
+              {rows.map(r => {
+                const isExp = expanded.has(r.id);
+                return (
+                  <React.Fragment key={r.id}>
+                    <tr className="border-b hover:bg-gray-50">
+                      <td className="p-2 text-center">
+                        <button
+                          onClick={() => toggleExpand(r.id)}
+                          className="text-gray-500 hover:text-gray-700"
+                          title={isExp ? "Collapse" : "Expand"}
+                        >{isExp ? '▾' : '▸'}</button>
+                      </td>
+                      <td className="p-2">
+                        <span className="font-medium">{r.title}</span>
+                      </td>
+                      <td className="p-2 text-center">{r.child_count ?? (r.child_ids ? r.child_ids.length : 0)}</td>
+                      <td className="p-2 text-xs text-gray-500">
+                        {r.created_at ? new Date(r.created_at).toLocaleString() : '—'}
+                      </td>
+                      <td className="p-2 text-right">
+                        <div className="flex gap-1 justify-end">
+                          <button
+                            onClick={() => onLoadHost(r)}
+                            className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs"
+                          >
+                            Load
+                          </button>
+                          
+                          <button
+                            onClick={() => handleAddToCart(r, false)}
+                            disabled={!selectedCart}
+                            className={`px-2 py-1 text-xs rounded ${
+                              !selectedCart 
+                                ? 'bg-gray-200 text-gray-500' 
+                                : 'bg-blue-600 hover:bg-blue-700 text-white'
+                            }`}
+                            title="Add only the host record to cart"
+                          >
+                            Add Host Only
+                          </button>
+                          
+                          <button
+                            onClick={() => handleAddToCart(r, true)}
+                            disabled={!selectedCart}
+                            className={`px-2 py-1 text-xs rounded ${
+                              !selectedCart 
+                                ? 'bg-gray-200 text-gray-500' 
+                                : 'bg-purple-600 hover:bg-purple-700 text-white'
+                            }`}
+                            title="Add host and all children to cart"
+                          >
+                            Add with Children
+                          </button>
+                          
+                          <button
+                            onClick={() => handleDeleteHost(r.id)}
+                            className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {isExp && r.children && r.children.length > 0 && (
+                      <tr className="bg-gray-50 border-b">
+                        <td></td>
+                        <td colSpan={4} className="p-3">
+                          <div className="text-xs font-semibold text-gray-600 mb-2">Constituents</div>
+                          <ul className="grid gap-1 sm:grid-cols-2 md:grid-cols-3">
+                            {r.children.map(c => (
+                              <li key={`${r.id}-child-${c.id}`} className="p-2 bg-white rounded border flex flex-col">
+                                <span className="font-medium text-xs">
+                                  #{c.id ?? '—'} {c.title || 'Untitled'}
+                                </span>
+                                <button
+                                  disabled={c.id == null}
+                                  onClick={() => onLoadHost({ ...r, child_ids: r.child_ids })}
+                                  className="mt-1 self-start text-blue-600 hover:underline text-2xs disabled:text-gray-400"
+                                >
+                                  Open Host
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="px-5 py-3 flex items-center justify-between border-t text-xs">
+          <div>Page {page}</div>
+          <div className="flex gap-2">
+            <button
+              className="px-2 py-1 border rounded disabled:opacity-40"
+              disabled={page <= 1 || loading}
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+            >Prev</button>
+            <button
+              className="px-2 py-1 border rounded disabled:opacity-40"
+              disabled={loading || rows.length < pageSize}
+              onClick={() => setPage(p => p + 1)}
+            >Next</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SudocEditor() {
+  const [records, setRecords] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [marcFields, setMarcFields] = useState({});
   const [loadingIds, setLoadingIds] = useState(new Set());
   const [editingField, setEditingField] = useState(null);
   const [editedFields, setEditedFields] = useState({});
   const [isSaving, setIsSaving] = useState(false);
-  const [workingMode, setWorkingMode] = useState('checkout'); // 'checkout' or 'cart'
+  const [workingMode, setWorkingMode] = useState('checkout');
   const [showAddField, setShowAddField] = useState(false);
+  const [loading, setLoading] = useState(false); // Add this line
   const [newField945, setNewField945] = useState({
-    l: 'ssd', // default location
-    i: '',    // barcode
-    c: '',    // call number
-    n: ''     // enumeration/chronology
+    l: 'ssd',
+    i: '',
+    c: '',
+    n: ''
   });
   const [showBoundwithModal, setShowBoundwithModal] = useState(false);
+  const [showCreatedHosts, setShowCreatedHosts] = useState(false);
+  const [showHostBrowser, setShowHostBrowser] = useState(false);
 
   const { 
     carts, 
@@ -690,6 +1201,7 @@ export default function SudocEditor() {
     const fetchCartRecords = async () => {
       if (selectedCart && carts) {
         try {
+          setLoading(true);
           const token = localStorage.getItem("token");
           const res = await apiFetch(`/catalog/sudoc/carts/${selectedCart}/records`, {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -700,17 +1212,47 @@ export default function SudocEditor() {
           }
           
           const response = await res.json();
-          // Fix: extract the items array from the response
-          const cartRecords = response.items || [];
+          // Extract the items array from the response
+          const cartItems = response.items || [];
           
-          setRecords(cartRecords);
+          // For each item that's a host, fetch its boundwith info
+          const processedRecords = await Promise.all(
+            cartItems.map(async (item) => {
+              // Check if this might be a host record
+              try {
+                const boundwithRes = await apiFetch(
+                  `/catalog/sudoc/lookup/${item.id}?include_children=false`,
+                  { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+                );
+                
+                if (boundwithRes.ok) {
+                  const recordInfo = await boundwithRes.json();
+                  // If it's a host record, add the necessary properties
+                  if (recordInfo.isHost && recordInfo.childIds?.length > 0) {
+                    return {
+                      ...item,
+                      isHost: true,
+                      childIds: recordInfo.childIds,
+                    };
+                  }
+                }
+              } catch (err) {
+                console.error(`Failed to fetch boundwith info for ${item.id}`, err);
+              }
+              return item;
+            })
+          );
+          
+          setRecords(processedRecords);
           setWorkingMode('cart');
-          setSelectedId(cartRecords[0]?.id || null);
+          setSelectedId(processedRecords[0]?.id || null);
         } catch (err) {
           console.error('Failed to fetch cart records:', err);
           setRecords([]);
           setWorkingMode('cart');
           setSelectedId(null);
+        } finally {
+          setLoading(false);
         }
       } else if (workingMode === 'cart') {
         // Switch back to checked-out items
@@ -996,9 +1538,333 @@ export default function SudocEditor() {
     </div>
   );
 
+  // Track which host “folders” are expanded
+  const [expandedHosts, setExpandedHosts] = useState(new Set());
+
+  // Helper: toggle expand/collapse of a host folder
+  const toggleHostExpand = (hostId) => {
+    setExpandedHosts(prev => {
+      const next = new Set(prev);
+      if (next.has(hostId)) next.delete(hostId); else next.add(hostId);
+      return next;
+    });
+  };
+
+  // Add this function to the SudocEditor component
+  const expandHostInCart = async (hostRecord) => {
+    // If already expanded, just collapse
+    if (expandedHosts.has(hostRecord.id)) {
+      toggleHostExpand(hostRecord.id);
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      const token = localStorage.getItem("token");
+      
+      // Get full host record with children
+      const response = await apiFetch(`/catalog/sudoc/lookup/${hostRecord.id}?include_children=true`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      
+      if (!response.ok) throw new Error("Failed to load host details");
+      
+      const hostData = await response.json();
+      
+      if (hostData.childIds?.length > 0) {
+        // Mark this host as expanded
+        toggleHostExpand(hostRecord.id);
+        
+        // If we have full child records from the response
+        if (hostData.childRecords?.length > 0) {
+          // Add child records to the main records list if not already there
+          setRecords(prevRecords => {
+            const childRecords = hostData.childRecords.map(child => ({
+              ...child,
+              hostId: hostRecord.id,
+              // If no ID was found, use the OCLC as display-only
+              _isOclcOnly: !child.id && child.oclc
+            }));
+            
+            // Filter out any existing children for this host
+            const filteredRecords = prevRecords.filter(
+              rec => !rec.hostId || rec.hostId !== hostRecord.id
+            );
+            
+            return [...filteredRecords, ...childRecords];
+          });
+        }
+        // If we only have IDs, fetch each child
+        else {
+          const childPromises = hostData.childIds.map(async childId => {
+            try {
+              const childRes = await apiFetch(`/catalog/sudoc/lookup/${childId}`, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+              });
+              
+              if (childRes.ok) {
+                const childData = await childRes.json();
+                return {
+                  ...childData,
+                  hostId: hostRecord.id,
+                };
+              }
+              return null;
+            } catch (e) {
+              console.error(`Error loading child ${childId}:`, e);
+              return null;
+            }
+          });
+          
+          const childRecords = await Promise.all(childPromises);
+          
+          // Add valid child records to the main records list
+          setRecords(prevRecords => {
+            // Add any children that aren't already in the records list
+            const existingIds = new Set(prevRecords.map(r => r.id));
+            const newChildren = childRecords
+              .filter(c => c && !existingIds.has(c.id));
+            
+            return [...prevRecords, ...newChildren];
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error expanding host:", error);
+      alert("Failed to load child records");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // After backend creates / updates a boundwith set
+  const handleBoundwithCreated = ({ host }) => {
+    // Do NOT auto-add. Just notify user.
+    alert(`Host record #${host.id} created. Use Host Browser to load it.`);
+  };
+
+  // Build display list with host "folder" + children
+  const buildDisplayRecords = () => {
+    const mapById = new Map(records.map(r => [r.id, r]));
+    const result = [];
+    records.forEach(r => {
+      if (r.isHost) {
+        result.push({ ...r, _isHostRow: true });
+        if (expandedHosts.has(r.id) && Array.isArray(r.childIds)) {
+          r.childIds.forEach(cid => {
+            const child = mapById.get(cid) || { id: cid, title: `Child ${cid}`, sudoc: '', oclc: '', hostId: r.id };
+            result.push({ ...child, _isChildRow: true, _hostId: r.id });
+          });
+        }
+      } else if (!r.hostId) {
+        // Only add non-host, non-child top-level records here
+        result.push(r);
+      }
+    });
+    return result;
+  };
+  const displayRecords = buildDisplayRecords();
+
+  // Explicit loader for host records
+  const loadHostFromBrowser = async (hostMeta) => {
+    try {
+      const res = await apiFetch(`/catalog/sudoc/${hostMeta.id}`, {
+        headers: localStorage.getItem("token") ? { Authorization: `Bearer ${localStorage.getItem("token")}` } : {}
+      });
+      const fields = res.ok ? await res.json() : [];
+      const hostRecord = {
+        id: hostMeta.id,
+        title: hostMeta.title,
+        sudoc: "",
+        oclc: "",
+        isHost: true,
+        childIds: hostMeta.child_ids || []
+      };
+      setRecords(prev => {
+        // Add host at top; add children ONLY as lightweight stubs
+        const next = [hostRecord, ...prev.filter(r => r.id !== hostRecord.id)];
+        (hostMeta.child_ids || []).forEach(cid => {
+          if (!next.find(r => r.id === cid)) {
+            next.push({ id: cid, title: `Child ${cid}`, hostId: hostMeta.id });
+          }
+        });
+        localStorage.setItem("checkedOut", JSON.stringify(next));
+        return next;
+      });
+      setMarcFields(prev => ({ ...prev, [hostMeta.id]: fields }));
+      setExpandedHosts(prev => new Set(prev).add(hostMeta.id));
+      setSelectedId(hostMeta.id);
+      setShowHostBrowser(false);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to load host.");
+    }
+  };
+
+  // Load host children when host is selected
+  const loadHostChildren = async (hostId) => {
+    try {
+      const token = localStorage.getItem("token");
+      const resp = await apiFetch(`/catalog/sudoc/boundwith/hosts/${hostId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (resp.ok) {
+        const hostInfo = await resp.json();
+        // Fetch each child record to get full details
+        if (hostInfo.child_ids && hostInfo.child_ids.length > 0) {
+          const childDetails = await Promise.all(
+            hostInfo.child_ids.map(async (childId) => {
+              // Try to find in current records first
+              const existingRecord = records.find(r => r.id === childId);
+              if (existingRecord) return existingRecord;
+              
+              // Otherwise fetch from API
+              try {
+                const childResp = await apiFetch(`/catalog/sudoc/lookup/${childId}`, {
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+                if (childResp.ok) {
+                  const data = await childResp.json();
+                  return {
+                    id: childId,
+                    title: data.title || "Untitled Child Record",
+                    sudoc: data.sudoc || "",
+                    oclc: data.oclc || "",
+                    _isChildRow: true,
+                    _parentId: hostId
+                  };
+                }
+              } catch (e) {
+                console.error(`Error fetching child ${childId}:`, e);
+              }
+              
+              // Fallback with minimal info if fetch fails
+              return {
+                id: childId,
+                title: "Child Record",
+                _isChildRow: true,
+                _parentId: hostId
+              };
+            })
+          );
+          
+          // Add child records to the records array
+          setExpandedHosts(prev => new Set([...prev, hostId]));
+          setRecords(prevRecords => {
+            // Find position of host record
+            const hostIndex = prevRecords.findIndex(r => r.id === hostId);
+            if (hostIndex === -1) return prevRecords;
+            
+            // Insert children after host
+            const newRecords = [...prevRecords];
+            newRecords.splice(hostIndex + 1, 0, ...childDetails);
+            return newRecords;
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Error loading host children:", err);
+    }
+  };
+
+  // Add or modify this function in your SudocEditor component
+  const toggleHostExpansion = async (hostRecord) => {
+    // Toggle expanded state
+    const isCurrentlyExpanded = expandedHosts.has(hostRecord.id);
+    
+    if (isCurrentlyExpanded) {
+      // If already expanded, just collapse
+      const newExpandedHosts = new Set(expandedHosts);
+      newExpandedHosts.delete(hostRecord.id);
+      setExpandedHosts(newExpandedHosts);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      // Fetch host record with its children
+      console.log(`Fetching children for host ${hostRecord.id}`);
+      const response = await apiFetch(
+        `/catalog/sudoc/lookup/${hostRecord.id}?include_children=true`
+      );
+      
+      if (!response.ok) throw new Error("Failed to load host details");
+      
+      const hostData = await response.json();
+      console.log("Host data received:", hostData);
+      
+      // Mark this host as expanded even if there are no children
+      toggleHostExpand(hostRecord.id);
+      
+      if (hostData.childIds?.length > 0) {
+        console.log(`Host has ${hostData.childIds.length} children`);
+        
+        // If we have full child records from the response
+        if (hostData.childRecords && hostData.childRecords.length > 0) {
+          console.log(`Got ${hostData.childRecords.length} child record details`);
+          
+          // Add child records to the main records list
+          setRecords(prevRecords => {
+            const childRecords = hostData.childRecords.map(child => ({
+              ...child,
+              hostId: hostRecord.id,
+              // If no ID was found, use the OCLC as display-only
+              _isOclcOnly: !child.id && child.oclc
+            }));
+            
+            // Filter out any existing children for this host
+            const filteredRecords = prevRecords.filter(
+              rec => !rec.hostId || rec.hostId !== hostRecord.id
+            );
+            
+            return [...filteredRecords, ...childRecords];
+          });
+        }
+        // If we only have IDs but not full records, create placeholder entries
+        else {
+          console.log("Child details not included, creating placeholders");
+          const childPlaceholders = hostData.childIds.map(childId => ({
+            id: childId,
+            title: `Child Record ${childId}`,
+            sudoc: "Loading...",
+            oclc: "",
+            hostId: hostRecord.id,
+            _isPlaceholder: true
+          }));
+          
+          setRecords(prevRecords => {
+            // Filter out any existing children for this host
+            const filteredRecords = prevRecords.filter(
+              rec => !rec.hostId || rec.hostId !== hostRecord.id
+            );
+            
+            return [...filteredRecords, ...childPlaceholders];
+          });
+        }
+      } else {
+        console.log("No children found for this host");
+      }
+    } catch (error) {
+      console.error("Error expanding host record:", error);
+      alert(`Failed to load child records: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="p-6 space-y-6 bg-gray-100 min-h-screen">
       <CartSelector />
+      <div className="mb-4 flex gap-3">
+        <button
+          onClick={() => setShowHostBrowser(true)}
+          className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded shadow text-sm"
+        >
+          Host Browser
+        </button>
+      </div>
       
       <div className="flex flex-col md:flex-row space-y-6 md:space-y-0 md:space-x-6">
         {/* Sidebar */}
@@ -1018,37 +1884,54 @@ export default function SudocEditor() {
             </p>
           )}
           <ul className="space-y-2">
-            {records.filter(rec => rec && rec.id).map((rec) => (
-              <li key={`record-${rec.id}`} className="relative group">
-                <button
-                  onClick={() => setSelectedId(rec.id)}
-                  className={`w-full text-left p-3 rounded-lg transition duration-150 ${
-                    rec.id === selectedId
-                      ? "bg-blue-50 text-blue-700 font-medium border border-blue-200"
-                      : "hover:bg-gray-50 text-gray-700"
-                  }`}
-                >
-                  <div className="text-sm leading-tight flex items-center gap-2">
-                    {formatItemDisplay(rec)}
-                    {isBoundwith(rec.id) && (
-                      <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded-full text-xs font-medium">
-                        Boundwith
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    OCLC: {rec.oclc || "—"}
-                  </div>
-                </button>
-                <button
-                  onClick={() => handleRemove(rec.id)}
-                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 bg-red-500 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs transition-opacity"
-                  title="Remove from list"
-                >
-                  ×
-                </button>
-              </li>
-            ))}
+            {displayRecords.filter(rec => rec && rec.id).map((rec) => (
+              <li
+                key={`record-${rec.id}${rec._isChildRow ? '-child' : ''}`}
+                className={`relative group ${rec._isChildRow ? 'ml-6' : ''}`}
+              >
+                <div className="flex items-start gap-2">
+                  {rec._isHostRow && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        workingMode === 'cart' ? expandHostInCart(rec) : toggleHostExpand(rec.id);
+                      }}
+                      className="mt-0.5 text-gray-500 hover:text-gray-700 text-xs px-1 rounded border border-transparent hover:border-gray-300"
+                      title={expandedHosts.has(rec.id) ? "Collapse" : "Expand"}
+                    >
+                      {expandedHosts.has(rec.id) ? '▾' : '▸'}
+                    </button>
+                  )}
+                 <button
+                   onClick={() => setSelectedId(rec.id)}
+                   className={`w-full text-left p-3 rounded-lg transition duration-150 ${
+                     rec.id === selectedId
+                       ? "bg-blue-50 text-blue-700 font-medium border border-blue-200"
+                       : "hover:bg-gray-50 text-gray-700"
+                   }`}
+                 >
+                   <div className="text-sm leading-tight flex items-center gap-2">
++                    {rec._isHostRow && <span className="px-1.5 py-0.5 bg-yellow-600 text-white rounded text-2xs">HOST</span>}
++                    {rec._isChildRow && <span className="px-1 py-0.5 bg-gray-200 text-gray-600 rounded text-2xs">child</span>}
+                     {formatItemDisplay(rec)}
+                     {!rec._isHostRow && isBoundwith(rec.id) && (
+                      <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded-full text-xs font-medium">Boundwith</span>
+                     )}
+                   </div>
+                   <div className="text-xs text-gray-500 mt-1">
+                     OCLC: {rec.oclc || "—"}
+                   </div>
+                 </button>
+                </div>
+                 <button
+                   onClick={() => handleRemove(rec.id)}
+                   className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 bg-red-500 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs transition-opacity"
+                   title="Remove from list"
+                 >
+                   ×
+                 </button>
+               </li>
+             ))}
           </ul>
           {records.length > 0 && (
             <button
@@ -1114,6 +1997,7 @@ export default function SudocEditor() {
                   
                   {isLoading ? (
                     <div className="p-6">
+                     
                       <p className="italic text-gray-600">
                         Loading local MARC…
                       </p>
@@ -1171,7 +2055,7 @@ export default function SudocEditor() {
                                         onChange={e => setEditedFields(prev => ({
                                           ...prev,
                                           [index]: { ...prev[index] || field, ind2: e.target.value }
-                                        }))}
+                                       }))}
                                         className="w-8 px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500"
                                         maxLength={1}
                                       />
@@ -1352,12 +2236,35 @@ export default function SudocEditor() {
 
       {/* Boundwith Modal */}
       {showBoundwithModal && (
-        <BoundwithModal 
+        <BoundwithModal
           isOpen={showBoundwithModal}
-          onClose={() => setShowBoundwithModal(false)}
-          currentRecord={selected}
+            onClose={() => setShowBoundwithModal(false)}
+            currentRecord={selected}
+            onBoundwithCreated={handleBoundwithCreated}
+        />
+      )}
+
+      {/* Created Hosts Modal */}
+      {showCreatedHosts && (
+        <CreatedHostsModal
+          isOpen={showCreatedHosts}
+          onClose={() => setShowCreatedHosts(false)}
+          onLoadHost={loadHost}
+        />
+      )}
+
+      {/* Host Browser Modal */}
+      {showHostBrowser && (
+        <HostBrowserModal
+          isOpen={showHostBrowser}
+          onClose={() => setShowHostBrowser(false)}
+          onLoadHost={loadHostFromBrowser}
+          carts={carts}
+          selectedCart={selectedCart} // Add this prop
         />
       )}
     </div>
   );
 }
+
+export default SudocEditor;
