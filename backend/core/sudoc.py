@@ -12,6 +12,8 @@ from cachetools import LRUCache
 from sqlalchemy.orm import Session
 from db import crud
 from db.session import SessionLocal
+import re
+import itertools
 
 BASE_DIR    = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SQLITE_PATH = os.path.join(BASE_DIR, "cgp_sudoc_index.db")
@@ -127,6 +129,8 @@ def _extract_fields_from_record(record) -> List[dict]:
                 "subfields": subfields
             })
     
+    # Sort fields by tag number for proper display order
+    result.sort(key=lambda x: x["tag"])
     return result
 
 def get_marc_by_id(record_id: int, include_edits: bool = True):
@@ -282,6 +286,66 @@ def get_oclc_number(rec: Record) -> Optional[str]:
                 return f"(OCoLC){s}"
     return None
 
+def build_serial_008(year: Optional[str] = None) -> str:
+    """Build a proper serial-style 008 field"""
+    from datetime import datetime
+    today = datetime.now().strftime('%y%m%d')
+    
+    # Date created (positions 0-5)
+    result = today
+    
+    # Date type and dates (positions 6-14)
+    if year:
+        # Continuing resource with start year
+        result += f"c{year[:4]:<4}9999"
+    else:
+        # Unknown dates
+        result += "n||||||||"
+    
+    # Place of publication (positions 15-17) - default to unknown
+    result += "|||"
+    
+    # Frequency, regularity, type (positions 18-20)
+    result += "|||"
+    
+    # Form of item (position 21-22)
+    result += "  "
+    
+    # Nature of contents (position 23)
+    result += " "
+    
+    # Government publication (position 24) - assume government pub
+    result += "f"
+    
+    # Conference publication (position 25)
+    result += "0"
+    
+    # Festschrift (position 26)
+    result += "0"
+    
+    # Index (position 27)
+    result += "0"
+    
+    # Undefined (position 28)
+    result += " "
+    
+    # Fiction (position 29)
+    result += "0"
+    
+    # Biography (position 30)
+    result += " "
+    
+    # Language (positions 31-33)
+    result += "eng"
+    
+    # Modified record (position 34)
+    result += " "
+    
+    # Cataloging source (position 35)
+    result += "d"
+    
+    return result
+
 def create_government_series_host_record(
     title: str,
     series: Optional[str],
@@ -292,10 +356,9 @@ def create_government_series_host_record(
 ) -> Record:
     """Create a new MARC record for a government series host"""
     rec = Record(force_utf8=True)
-    rec.leader = "00000nam a2200000   4500"
-    # 008 (very basic placeholder)
-    fixed_year = (year or "||||")[:4].rjust(4, ' ')
-    rec.add_field(Field(tag='008', data=f"{fixed_year}|||||||||||||||||||||||||||||eng|d"))
+    rec.leader = "00000cas a2200000   4500"  # Changed to 'cas' for continuing resource
+    # 008 - proper serial format
+    rec.add_field(Field(tag='008', data=build_serial_008(year)))
     # 245
     rec.add_field(Field(tag='245', indicators=['0','0'], subfields=[
         Subfield('a', title.rstrip(' /:;') + '.')
@@ -394,6 +457,145 @@ def _extract_host_title(record: Record) -> str:
             parts.append(vals[0])
     title = ' '.join(parts).strip(' /:;')
     return title or "Host"
+
+# ================= Boundwith Normalization Helpers (NEW) ================= #
+
+def _normalize_spaces(text: str) -> str:
+    return re.sub(r'\s+', ' ', text or '').strip()
+
+def build_normalized_245_title(rec: Record) -> str:
+    """Return a normalized title using 245 $a $b with punctuation rules."""
+    f_list = rec.get_fields('245')
+    if not f_list:
+        return "Untitled"
+    f = f_list[0]
+    a = f.get_subfields('a')
+    b = f.get_subfields('b')
+    parts: List[str] = []
+    if a:
+        parts.append(a[0].rstrip(' /:;'))
+    if b:
+        btxt = b[0].rstrip(' /:;')
+        if parts and not re.search(r'[:;.,]$', parts[-1]):
+            parts[-1] += ':'
+        parts.append(btxt)
+    title = _normalize_spaces(' '.join(parts))
+    return title or "Untitled"
+
+def build_normalized_child_title(rec: Record) -> str:
+    return build_normalized_245_title(rec)
+
+def derive_common_publisher_and_year(records: List[Record]):
+    pubs: List[str] = []
+    years: List[str] = []
+    for r in records:
+        for tag in ('264','260'):
+            for f in r.get_fields(tag):
+                for b in f.get_subfields('b'):
+                    pubs.append(b.rstrip(' ,;:/'))
+                for c in f.get_subfields('c'):
+                    m = re.search(r'(\d{4})', c)
+                    if m:
+                        years.append(m.group(1))
+    publisher = None
+    if pubs:
+        publisher = max(((p, pubs.count(p)) for p in set(pubs)), key=lambda x: x[1])[0]
+    year_range = None
+    if years:
+        if len(set(years)) > 1:
+            year_range = f"{min(years)}-"
+        else:
+            year_range = years[0]
+    return publisher, year_range
+
+def derive_common_subjects(records: List[Record], min_frequency: float = 0.5, limit: int = 5) -> List[str]:
+    subjects: List[str] = []
+    for r in records:
+        for f in r.get_fields():
+            if f.tag.startswith('65'):
+                vals: List[str] = []
+                for code in ('a','x','y','z'):
+                    for sf in f.get_subfields(code):
+                        vals.append(sf.strip(' .;,/'))
+                if vals:
+                    subjects.append(' -- '.join(vals))
+    flat_parts = list(itertools.chain.from_iterable(s.split(' -- ') for s in subjects))
+    if not flat_parts:
+        return []
+    freq: Dict[str,int] = {}
+    for p in flat_parts:
+        freq[p] = freq.get(p,0)+1
+    threshold = max(1, int(len(records)*min_frequency))
+    common = [p for p,c in freq.items() if c >= threshold]
+    common.sort(key=lambda p: (-freq[p], p.lower()))
+    return common[:limit]
+
+def _preferred_control_number(record: Record, fallback_local: str) -> str:  # type: ignore[override]
+    """Override earlier definition to ensure OCLC preference and safe wrapper."""
+    # First try OCLC number
+    oclc = get_oclc_number(record)
+    if oclc:
+        return oclc
+    # Next try system control number from 001
+    cn = get_control_number(record)
+    if cn:
+        if not cn.startswith('('):
+            return f"(LOCAL){cn}"
+        return cn
+    return f"(LOCAL){fallback_local}"
+
+def build_774_line(child: Record, fallback_id: str, ordinal: Optional[int] = None) -> Dict[str,str]:
+    title = build_normalized_child_title(child)
+    w = _preferred_control_number(child, fallback_id)
+    result = {"i": "Contains (work):", "t": title, "w": w}
+    if ordinal is not None:
+        result["g"] = f"no: {ordinal}"
+    return result
+
+def build_boundwith_preview(record_ids: List[int]) -> Dict[str, Any]:
+    """Given record IDs, construct a preview of a prospective host record metadata.
+    Returns dict with host_title, publisher, year_range, subjects, lines_774.
+    """
+    recs: List[Record] = []
+    for rid in record_ids:
+        rec = get_marc_by_id(rid, include_edits=True)
+        if rec:
+            recs.append(rec)
+    if not recs:
+        return {"host_title": "Collection.", "publisher": None, "year_range": None, "subjects": [], "lines_774": []}
+
+    publisher, year_range = derive_common_publisher_and_year(recs)
+    subjects = derive_common_subjects(recs)
+
+    committee_names: List[str] = []
+    for r in recs:
+        for tag in ('110','710'):
+            for f in r.get_fields(tag):
+                segs: List[str] = []
+                for code in ('a','b'):
+                    for sf in f.get_subfields(code):
+                        segs.append(sf.rstrip(' /:;'))
+                if segs:
+                    nm = _normalize_spaces('. '.join(segs))
+                    committee_names.append(nm)
+    if committee_names:
+        # most frequent
+        host_root = max(((n, committee_names.count(n)) for n in set(committee_names)), key=lambda x: x[1])[0]
+    else:
+        host_root = build_normalized_child_title(recs[0])
+    host_title = host_root + " Collection."
+
+    lines_774: List[Dict[str,str]] = []
+    for ordinal, (rid, r) in enumerate(zip(record_ids, recs), 1):
+        lines_774.append(build_774_line(r, str(rid), ordinal))
+
+    return {
+        "host_title": host_title,
+        "publisher": publisher,
+        "year_range": year_range,
+        "subjects": subjects,
+        "lines_774": lines_774,
+    }
 
 # Add this function to lookup records by OCLC number
 def get_record_by_oclc(oclc_number: str):

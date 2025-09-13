@@ -362,6 +362,16 @@ def get_carts(db: Session) -> List[models.SudocCart]:
              .all()
 
 def add_to_cart(db: Session, cart_id: int, record_id: int) -> models.SudocCartItem:
+    # Check if item already exists
+    existing = db.query(models.SudocCartItem).filter(
+        models.SudocCartItem.cart_id == cart_id,
+        models.SudocCartItem.record_id == record_id
+    ).first()
+    
+    if existing:
+        return existing  # Return existing item instead of creating duplicate
+    
+    # Create new item
     item = models.SudocCartItem(cart_id=cart_id, record_id=record_id)
     db.add(item)
     db.commit()

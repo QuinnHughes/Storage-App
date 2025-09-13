@@ -1,5 +1,5 @@
 // src/pages/SudocEditor.jsx
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import apiFetch from '../api/client';
 import { useSudocCarts } from '../hooks/useSudocCarts';
 
@@ -27,6 +27,9 @@ function BoundwithModal({ isOpen, onClose, currentRecord, onBoundwithCreated }) 
   const [itemPolicy, setItemPolicy] = useState("book");
   const [itemEnumeration, setItemEnumeration] = useState("");
   const [itemChronology, setItemChronology] = useState("");
+  // Preview state for auto-generated host & 774 lines
+  const [preview, setPreview] = useState(null);
+  const [userTouchedTitle, setUserTouchedTitle] = useState(false);
   
   // Add current record to selected by default
   useEffect(() => {
@@ -106,6 +109,40 @@ function BoundwithModal({ isOpen, onClose, currentRecord, onBoundwithCreated }) 
       
       fetchMarcData();
     }
+  }, [createMode, selectedRecords]);
+
+  // Fetch backend preview (normalized 774 + suggested title) when creating new host
+  useEffect(() => {
+    if (createMode !== 'new-host' || selectedRecords.length === 0) {
+      setPreview(null);
+      return;
+    }
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await apiFetch('/catalog/sudoc/boundwith/build', {
+          method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({ record_ids: selectedRecords.map(r => r.id) }),
+            signal: controller.signal
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        setPreview(data);
+        if (!userTouchedTitle && data.host_title && !hostTitle) {
+          setHostTitle(data.host_title);
+        }
+        if (data.publisher && !hostPublisher) setHostPublisher(data.publisher);
+        if (data.subjects && data.subjects.length && hostSubjects.length === 0) setHostSubjects(data.subjects);
+      } catch (e) {
+        if (e.name !== 'AbortError') console.error('Preview build failed', e);
+      }
+    })();
+    return () => controller.abort();
   }, [createMode, selectedRecords]);
 
   // New function to analyze MARC records and extract common data
@@ -495,17 +532,17 @@ function BoundwithModal({ isOpen, onClose, currentRecord, onBoundwithCreated }) 
             <h4 className="font-medium mb-3">Series-Level Host Record Details</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Host Record Title</label>
+                <label className="block text-sm font-medium mb-1">Host Record Title (245)</label>
                 <input
                   type="text"
                   value={hostTitle}
-                  onChange={(e) => setHostTitle(e.target.value)}
+                  onChange={(e) => { setHostTitle(e.target.value); setUserTouchedTitle(true); }}
                   className="w-full border rounded px-3 py-2"
                   placeholder="Collection Title"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Series</label>
+                <label className="block text-sm font-medium mb-1">Series (830)</label>
                 <input
                   type="text"
                   value={hostSeries}
@@ -515,7 +552,7 @@ function BoundwithModal({ isOpen, onClose, currentRecord, onBoundwithCreated }) 
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Publisher</label>
+                <label className="block text-sm font-medium mb-1">Publisher (260/264)</label>
                 <input
                   type="text"
                   value={hostPublisher}
@@ -525,7 +562,7 @@ function BoundwithModal({ isOpen, onClose, currentRecord, onBoundwithCreated }) 
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Series Number</label>
+                <label className="block text-sm font-medium mb-1">Series Number (490$v)</label>
                 <input
                   type="text"
                   value={hostSeriesNumber}
@@ -535,7 +572,7 @@ function BoundwithModal({ isOpen, onClose, currentRecord, onBoundwithCreated }) 
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Publication Year</label>
+                <label className="block text-sm font-medium mb-1">Publication Year (260$c/264$c)</label>
                 <input
                   type="text"
                   value={hostYear}
@@ -545,7 +582,7 @@ function BoundwithModal({ isOpen, onClose, currentRecord, onBoundwithCreated }) 
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Common Subjects</label>
+                <label className="block text-sm font-medium mb-1">Common Subjects (6XX)</label>
                 <div className="border rounded px-3 py-2 bg-gray-50 min-h-[38px]">
                   {hostSubjects.length > 0 ? (
                     <div className="flex flex-wrap gap-1">
@@ -563,17 +600,41 @@ function BoundwithModal({ isOpen, onClose, currentRecord, onBoundwithCreated }) 
             </div>
           </div>
         )}
+
+        {/* Auto-generated Preview (new-host mode) */}
+        {createMode === "new-host" && preview && (
+          <div className="mb-6 border p-4 rounded-lg bg-gray-50">
+            <h4 className="font-medium mb-2">Auto-generated Preview (774 lines)</h4>
+            {preview.host_title && !userTouchedTitle && hostTitle !== preview.host_title && (
+              <div className="text-xs text-blue-700 mb-2">Suggested title applied from analysis.</div>
+            )}
+            <div className="text-xs font-mono whitespace-pre-wrap bg-white border rounded p-3 max-h-40 overflow-y-auto">
+              {preview.lines_774 && preview.lines_774.length > 0 ? (
+                preview.lines_774.map((l, i) => (
+                  <div key={i}>
+                    774 08 $i {l.i} $t {l.t}{l.w ? ` $w ${l.w}` : ''}{l.g ? ` $g ${l.g}` : ''}
+                  </div>
+                ))
+              ) : (
+                <div className="text-gray-500">No 774 lines generated yet.</div>
+              )}
+            </div>
+            <p className="mt-2 text-[11px] text-gray-500">
+              These 774 fields will be created when you finalize the boundwith.
+            </p>
+          </div>
+        )}
         
-        {/* Holdings & Item Information */}
+        {/* Holdings Information (852) */}
         <div className="mb-6 border p-4 rounded-lg">
-          <h4 className="font-medium mb-3">Holdings & Item Information</h4>
+          <h4 className="font-medium mb-3">Holdings Information (852)</h4>
           <p className="text-sm text-gray-600 mb-4">
-            This information will be used to create holdings and item records in ALMA.
+            This information represents where the physical item is stored.
           </p>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Location</label>
+              <label className="block text-sm font-medium mb-1">Location (852$l)</label>
               <select
                 value={holdingsLocation}
                 onChange={(e) => setHoldingsLocation(e.target.value)}
@@ -585,7 +646,7 @@ function BoundwithModal({ isOpen, onClose, currentRecord, onBoundwithCreated }) 
             </div>
             
             <div>
-              <label className="block text-sm font-medium mb-1">Call Number</label>
+              <label className="block text-sm font-medium mb-1">Call Number (852$c)</label>
               <input
                 type="text"
                 value={holdingsCallNumber}
@@ -594,9 +655,19 @@ function BoundwithModal({ isOpen, onClose, currentRecord, onBoundwithCreated }) 
                 placeholder="Call number for shelving"
               />
             </div>
-            
+          </div>
+        </div>
+
+        {/* Item Information (945) */}
+        <div className="mb-6 border p-4 rounded-lg">
+          <h4 className="font-medium mb-3">Item Information (945)</h4>
+          <p className="text-sm text-gray-600 mb-4">
+            This information describes the specific physical item.
+          </p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Barcode</label>
+              <label className="block text-sm font-medium mb-1">Barcode (945$i)</label>
               <input
                 type="text"
                 value={itemBarcode}
@@ -607,7 +678,7 @@ function BoundwithModal({ isOpen, onClose, currentRecord, onBoundwithCreated }) 
             </div>
             
             <div>
-              <label className="block text-sm font-medium mb-1">Item Policy</label>
+              <label className="block text-sm font-medium mb-1">Item Policy (945$p)</label>
               <select
                 value={itemPolicy}
                 onChange={(e) => setItemPolicy(e.target.value)}
@@ -620,7 +691,7 @@ function BoundwithModal({ isOpen, onClose, currentRecord, onBoundwithCreated }) 
             </div>
             
             <div>
-              <label className="block text-sm font-medium mb-1">Enumeration</label>
+              <label className="block text-sm font-medium mb-1">Enumeration (945$e)</label>
               <input
                 type="text"
                 value={itemEnumeration}
@@ -631,7 +702,7 @@ function BoundwithModal({ isOpen, onClose, currentRecord, onBoundwithCreated }) 
             </div>
             
             <div>
-              <label className="block text-sm font-medium mb-1">Chronology</label>
+              <label className="block text-sm font-medium mb-1">Chronology (945$n)</label>
               <input
                 type="text"
                 value={itemChronology}
@@ -886,7 +957,7 @@ function CreatedHostsModal({ isOpen, onClose, onLoadHost }) {
   );
 }
 
-function HostBrowserModal({ isOpen, onClose, onLoadHost, carts = [], selectedCart }) {
+function HostBrowserModal({ isOpen, onClose, onLoadHost, carts = [], selectedCart, loadCarts }) {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize] = useState(25);
@@ -926,36 +997,64 @@ function HostBrowserModal({ isOpen, onClose, onLoadHost, carts = [], selectedCar
 
   // New function to handle adding host record to cart
   const handleAddToCart = async (hostRecord, includeChildren = false) => {
+    console.log("handleAddToCart called with:", { hostRecord, includeChildren, selectedCart });
+    
     if (!selectedCart) { // Now selectedCart is defined as a prop
       alert("Please select a cart first");
       return;
     }
     
+    if (!loadCarts) {
+      console.error("loadCarts function not available");
+      alert("Cart refresh function not available");
+      return;
+    }
+    
     try {
+      console.log(`Adding host ${hostRecord.id} to cart ${selectedCart}, includeChildren: ${includeChildren}`);
       setLoading(true);
+      const startTime = Date.now();
+      
+      const token = localStorage.getItem("token");
+      console.log("Token available:", !!token);
+      console.log("Request URL:", `/catalog/sudoc/cart/${selectedCart}/hosts/${hostRecord.id}?include_children=${includeChildren}`);
+      
       const response = await apiFetch(
         `/catalog/sudoc/cart/${selectedCart}/hosts/${hostRecord.id}?include_children=${includeChildren}`,
         { 
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`
+            Authorization: `Bearer ${token}`
           }
         }
       );
       
+      const endTime = Date.now();
+      console.log(`Cart add operation took ${endTime - startTime}ms`);
+      
       if (!response.ok) {
-        throw new Error("Failed to add to cart");
+        const errorText = await response.text();
+        console.error("Cart add failed:", errorText);
+        throw new Error(`Failed to add to cart: ${response.status}`);
       }
       
       const data = await response.json();
-      alert(includeChildren 
-        ? `Added host and ${data.children_added.length} children to cart` 
-        : "Added host record to cart"
-      );
+      console.log("Cart add response:", data);
+      
+      // Refresh cart data to show new items
+      console.log("Refreshing carts after successful add...");
+      await loadCarts();
+      console.log("Cart refresh completed");
+      
+      const message = includeChildren 
+        ? `Added host and ${data.children_added?.length || 0} children to cart` 
+        : "Added host record to cart";
+      console.log("Success:", message);
+      alert(message);
       return true;
     } catch (error) {
       console.error("Error adding host to cart:", error);
-      alert("Failed to add to cart");
+      alert(`Failed to add to cart: ${error.message}`);
       return false;
     } finally {
       setLoading(false);
@@ -1020,7 +1119,7 @@ function HostBrowserModal({ isOpen, onClose, onLoadHost, carts = [], selectedCar
                 <th className="p-2 text-left">Title</th>
                 <th className="p-2 w-24 text-center">Children</th>
                 <th className="p-2 w-40">Created</th>
-                <th className="p-2 w-36"></th> {/* Wider column for buttons */}
+                <th className="p-2 w-36"></th>
               </tr>
             </thead>
             <tbody>
@@ -1066,22 +1165,9 @@ function HostBrowserModal({ isOpen, onClose, onLoadHost, carts = [], selectedCar
                                 ? 'bg-gray-200 text-gray-500' 
                                 : 'bg-blue-600 hover:bg-blue-700 text-white'
                             }`}
-                            title="Add only the host record to cart"
+                            title="Add host record to cart"
                           >
-                            Add Host Only
-                          </button>
-                          
-                          <button
-                            onClick={() => handleAddToCart(r, true)}
-                            disabled={!selectedCart}
-                            className={`px-2 py-1 text-xs rounded ${
-                              !selectedCart 
-                                ? 'bg-gray-200 text-gray-500' 
-                                : 'bg-purple-600 hover:bg-purple-700 text-white'
-                            }`}
-                            title="Add host and all children to cart"
-                          >
-                            Add with Children
+                            Add to Cart
                           </button>
                           
                           <button
@@ -1124,7 +1210,9 @@ function HostBrowserModal({ isOpen, onClose, onLoadHost, carts = [], selectedCar
           </table>
         </div>
         <div className="px-5 py-3 flex items-center justify-between border-t text-xs">
-          <div>Page {page}</div>
+          <div>
+            Page {page} • Showing {rows.length} • Total {meta.count}
+          </div>
           <div className="flex gap-2">
             <button
               className="px-2 py-1 border rounded disabled:opacity-40"
@@ -1171,13 +1259,43 @@ function SudocEditor() {
     createCart,
     addToCart,
     removeFromCart,
-    deleteCart
+    deleteCart,
+    loadCarts
   } = useSudocCarts();
 
   // Calculate selected record - moved before callbacks that use it
   const selected = records.find((r) => r.id === selectedId);
   const fields = selectedId != null ? marcFields[selectedId] : null;
   const isLoading = loadingIds.has(selectedId);
+
+  // Helper function to refresh boundwith info for a record
+  const refreshBoundwithInfo = async (recordId) => {
+    try {
+      const token = localStorage.getItem("token");
+      const boundwithRes = await apiFetch(
+        `/catalog/sudoc/lookup/${recordId}?include_children=false`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+      
+      if (boundwithRes.ok) {
+        const recordInfo = await boundwithRes.json();
+        // Update the record in our records array
+        setRecords(prev => prev.map(record => {
+          if (record.id === recordId) {
+            return {
+              ...record,
+              isHost: recordInfo.isHost || false,
+              childIds: recordInfo.childIds || [],
+              title: recordInfo.title || record.title // Update title if available
+            };
+          }
+          return record;
+        }));
+      }
+    } catch (err) {
+      console.error(`Failed to refresh boundwith info for ${recordId}:`, err);
+    }
+  };
 
   // Helper function to truncate title with call number
   const formatItemDisplay = (item) => {
@@ -1203,7 +1321,7 @@ function SudocEditor() {
         try {
           setLoading(true);
           const token = localStorage.getItem("token");
-          const res = await apiFetch(`/catalog/sudoc/carts/${selectedCart}/records`, {
+          const res = await apiFetch(`/catalog/sudoc/cart/${selectedCart}/records`, {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
           });
           
@@ -1220,19 +1338,25 @@ function SudocEditor() {
             cartItems.map(async (item) => {
               // Check if this might be a host record
               try {
+                console.log(`Checking if record ${item.id} is a host`);
                 const boundwithRes = await apiFetch(
-                  `/catalog/sudoc/lookup/${item.id}?include_children=false`,
+                  `/catalog/sudoc/lookup/${item.id}?include_children=true`,
                   { headers: token ? { Authorization: `Bearer ${token}` } : {} }
                 );
                 
                 if (boundwithRes.ok) {
                   const recordInfo = await boundwithRes.json();
+                  console.log(`Record ${item.id} info:`, recordInfo);
+                  
                   // If it's a host record, add the necessary properties
                   if (recordInfo.isHost && recordInfo.childIds?.length > 0) {
+                    console.log(`Record ${item.id} is a host with ${recordInfo.childIds.length} children`);
                     return {
                       ...item,
                       isHost: true,
+                      _isHostRow: true,  // Add the UI flag
                       childIds: recordInfo.childIds,
+                      childRecords: recordInfo.childRecords || [],
                     };
                   }
                 }
@@ -1346,12 +1470,59 @@ function SudocEditor() {
     URL.revokeObjectURL(url);
   };
 
-  // Update the handleSaveField function to connect to your existing backend endpoint
-  const handleSaveField = async (fieldIndex, updatedField) => {
-    if (!selectedId) return;
+  // Auto-save functionality with debouncing
+  const autoSaveTimeoutRef = useRef(null);
+  const savingFieldsRef = useRef(new Set());
+  
+  const scheduleAutoSave = (fieldIndex) => {
+    // Clear any existing timeout for this field
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
     
-    setIsSaving(true);
+    // Don't schedule if already saving this field
+    if (savingFieldsRef.current.has(fieldIndex)) {
+      return;
+    }
+    
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      handleSaveField(fieldIndex, true); // true flag indicates auto-save
+    }, 1000); // Auto-save after 1 second of inactivity
+  };
+
+  // Update the handleSaveField function to connect to your existing backend endpoint
+  const handleSaveField = async (fieldIndex, isAutoSave = false) => {
+    // Prevent duplicate saves
+    if (savingFieldsRef.current.has(fieldIndex)) {
+      return;
+    }
+    
+    // Clear any pending auto-save
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+      autoSaveTimeoutRef.current = null;
+    }
+    
     try {
+      setIsSaving(true);
+      savingFieldsRef.current.add(fieldIndex);
+      
+      const editedField = editedFields[fieldIndex];
+      if (!editedField) {
+        if (!isAutoSave) console.error("No edits found for this field");
+        return;
+      }
+      
+      // Create a properly formatted field for the API
+      const updatedField = {
+        tag: editedField.tag,
+        indicators: [editedField.ind1 || ' ', editedField.ind2 || ' '],
+        subfields: Object.entries(editedField.subfields || {}).map(([code, value]) => ({
+          code,
+          value
+        }))
+      };
+      
       const response = await apiFetch(`/catalog/sudoc/${selectedId}/field/${fieldIndex}`, {
         method: 'PATCH',
         headers: {
@@ -1360,32 +1531,43 @@ function SudocEditor() {
         },
         body: JSON.stringify(updatedField)
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to save field');
-      }
-
-      const savedField = await response.json();
       
-      // Update the local state with the saved field
+      if (!response.ok) {
+        throw new Error(`Failed to save: ${response.status}`);
+      }
+      
+      // Update local state with the array of fields returned from the API
+      const updatedFields = await response.json();
+      
+      // IMPORTANT: Only update the fields for this specific record ID
       setMarcFields(prev => ({
         ...prev,
-        [selectedId]: prev[selectedId].map((field, index) => 
-          index === fieldIndex ? savedField : field
-        )
+        [selectedId]: updatedFields
       }));
-
-      // Clear editing state
+      
+      // Clear edited state for this field
+      const newEditedFields = { ...editedFields };
+      delete newEditedFields[fieldIndex];
+      setEditedFields(newEditedFields);
+      
+      // Exit edit mode
       setEditingField(null);
-      setEditedFields({});
       
-      console.log('Field saved successfully');
-      
+      // Show success notification (only for manual saves)
+      if (!isAutoSave) {
+        // Use a more subtle notification instead of alert
+        const notification = document.createElement('div');
+        notification.textContent = 'Field saved successfully';
+        notification.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded shadow-lg z-50';
+        document.body.appendChild(notification);
+        setTimeout(() => document.body.removeChild(notification), 3000);
+      }
     } catch (error) {
-      console.error('Failed to save field:', error);
-      alert('Failed to save field. Please try again.');
+      console.error("Error saving field:", error);
+      alert(`Failed to save: ${error.message}`);
     } finally {
       setIsSaving(false);
+      savingFieldsRef.current.delete(fieldIndex);
     }
   };
 
@@ -1543,17 +1725,28 @@ function SudocEditor() {
 
   // Helper: toggle expand/collapse of a host folder
   const toggleHostExpand = (hostId) => {
+    console.log(`Toggling host expand for ${hostId}`);
     setExpandedHosts(prev => {
       const next = new Set(prev);
-      if (next.has(hostId)) next.delete(hostId); else next.add(hostId);
+      if (next.has(hostId)) {
+        console.log(`Collapsing host ${hostId}`);
+        next.delete(hostId);
+      } else {
+        console.log(`Expanding host ${hostId}`);
+        next.add(hostId);
+      }
+      console.log(`New expandedHosts:`, next);
       return next;
     });
   };
 
   // Add this function to the SudocEditor component
   const expandHostInCart = async (hostRecord) => {
+    console.log("expandHostInCart called with:", hostRecord);
+    
     // If already expanded, just collapse
     if (expandedHosts.has(hostRecord.id)) {
+      console.log("Host already expanded, collapsing");
       toggleHostExpand(hostRecord.id);
       return;
     }
@@ -1562,6 +1755,7 @@ function SudocEditor() {
       setLoading(true);
       const token = localStorage.getItem("token");
       
+      console.log("Fetching host details for ID:", hostRecord.id);
       // Get full host record with children
       const response = await apiFetch(`/catalog/sudoc/lookup/${hostRecord.id}?include_children=true`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -1570,28 +1764,39 @@ function SudocEditor() {
       if (!response.ok) throw new Error("Failed to load host details");
       
       const hostData = await response.json();
+      console.log("Host data received:", hostData);
       
       if (hostData.childIds?.length > 0) {
+        console.log(`Host has ${hostData.childIds.length} children:`, hostData.childIds);
+        console.log("Full hostData:", hostData);
+        
         // Mark this host as expanded
         toggleHostExpand(hostRecord.id);
+        console.log("Host expansion toggled, expandedHosts now:", expandedHosts);
         
         // If we have full child records from the response
         if (hostData.childRecords?.length > 0) {
+          console.log("Using child records from response:", hostData.childRecords);
           // Add child records to the main records list if not already there
           setRecords(prevRecords => {
             const childRecords = hostData.childRecords.map(child => ({
               ...child,
               hostId: hostRecord.id,
+              _isChildRow: true,  // Add this flag for UI
               // If no ID was found, use the OCLC as display-only
               _isOclcOnly: !child.id && child.oclc
             }));
+            
+            console.log("Child records being added:", childRecords);
             
             // Filter out any existing children for this host
             const filteredRecords = prevRecords.filter(
               rec => !rec.hostId || rec.hostId !== hostRecord.id
             );
             
-            return [...filteredRecords, ...childRecords];
+            const newRecords = [...filteredRecords, ...childRecords];
+            console.log("New records array:", newRecords);
+            return newRecords;
           });
         }
         // If we only have IDs, fetch each child
@@ -1647,31 +1852,63 @@ function SudocEditor() {
   const buildDisplayRecords = () => {
     const mapById = new Map(records.map(r => [r.id, r]));
     const result = [];
+    
+    console.log("Building display records from:", records);
+    console.log("Expanded hosts:", expandedHosts);
+    
     records.forEach(r => {
-      if (r.isHost) {
+      // Check if this is a host record
+      if (r.isHost || r._isHostRow) {
+        console.log(`Adding host record ${r.id}`);
         result.push({ ...r, _isHostRow: true });
-        if (expandedHosts.has(r.id) && Array.isArray(r.childIds)) {
-          r.childIds.forEach(cid => {
-            const child = mapById.get(cid) || { id: cid, title: `Child ${cid}`, sudoc: '', oclc: '', hostId: r.id };
+        
+        // If expanded, show children
+        if (expandedHosts.has(r.id)) {
+          console.log(`Host ${r.id} is expanded, looking for children`);
+          
+          // Look for child records in the records array
+          const childRecords = records.filter(child => child.hostId === r.id);
+          console.log(`Found ${childRecords.length} child records for host ${r.id}:`, childRecords);
+          
+          childRecords.forEach(child => {
             result.push({ ...child, _isChildRow: true, _hostId: r.id });
           });
         }
-      } else if (!r.hostId) {
+      } else if (!r.hostId && !r._isChildRow) {
         // Only add non-host, non-child top-level records here
+        console.log(`Adding regular record ${r.id}`);
         result.push(r);
       }
+      // Skip child records that aren't being shown under their expanded parent
     });
+    
+    console.log("Final display records:", result);
     return result;
   };
   const displayRecords = buildDisplayRecords();
 
   // Explicit loader for host records
   const loadHostFromBrowser = async (hostMeta) => {
+    console.log("loadHostFromBrowser called with:", hostMeta);
     try {
-      const res = await apiFetch(`/catalog/sudoc/${hostMeta.id}`, {
+      const url = `/catalog/sudoc/${hostMeta.id}`;
+      console.log("Fetching host record from:", url);
+      
+      const res = await apiFetch(url, {
         headers: localStorage.getItem("token") ? { Authorization: `Bearer ${localStorage.getItem("token")}` } : {}
       });
-      const fields = res.ok ? await res.json() : [];
+      
+      console.log("Host fetch response:", res.status, res.ok);
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error("Host fetch failed:", errorText);
+        throw new Error(`Failed to fetch host record: ${res.status} - ${errorText}`);
+      }
+      
+      const fields = await res.json();
+      console.log("Host fields loaded:", fields.length);
+      
       const hostRecord = {
         id: hostMeta.id,
         title: hostMeta.title,
@@ -1695,9 +1932,10 @@ function SudocEditor() {
       setExpandedHosts(prev => new Set(prev).add(hostMeta.id));
       setSelectedId(hostMeta.id);
       setShowHostBrowser(false);
+      console.log("Host loaded successfully, browser closed");
     } catch (e) {
-      console.error(e);
-      alert("Failed to load host.");
+      console.error("Error loading host:", e);
+      alert(`Failed to load host: ${e.message}`);
     }
   };
 
@@ -1854,6 +2092,56 @@ function SudocEditor() {
     }
   };
 
+  // Add this CSS at the top of your component
+const responsiveStyles = `
+  .marc-field-container {
+    position: relative;
+    padding-right: 100px; /* Space for buttons */
+    margin-bottom: 8px;
+  }
+  
+  .marc-field-buttons {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    gap: 4px;
+  }
+  
+  /* Mobile/laptop styles */
+  @media (max-width: 1200px) {
+    .marc-field-container {
+      padding-right: 0;
+      padding-bottom: 40px; /* Space for buttons below on small screens */
+    }
+    
+    .marc-field-buttons {
+      top: auto;
+      bottom: 4px;
+      right: 4px;
+      transform: none;
+    }
+    
+    .record-detail-container {
+      max-height: 70vh;
+      overflow-y: auto;
+    }
+  }
+`;
+
+// Then near the top of your component:
+useEffect(() => {
+  // Add the styles to the document
+  const styleElement = document.createElement('style');
+  styleElement.innerHTML = responsiveStyles;
+  document.head.appendChild(styleElement);
+
+  return () => {
+    document.head.removeChild(styleElement);
+  };
+}, []);
+
   return (
     <div className="p-6 space-y-6 bg-gray-100 min-h-screen">
       <CartSelector />
@@ -1964,6 +2252,44 @@ function SudocEditor() {
                     >
                       Download
                     </button>
+                    {selectedCart && workingMode !== 'cart' && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await addToCart(selected.id);
+                            alert('Record added to cart successfully!');
+                          } catch (err) {
+                            alert(`Failed to add to cart: ${err.message}`);
+                          }
+                        }}
+                        className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition duration-150"
+                        title={`Add to cart: ${carts.find(c => c.id === selectedCart)?.name || 'Selected Cart'}`}
+                      >
+                        + Add to Cart
+                      </button>
+                    )}
+                    {selectedCart && workingMode === 'cart' && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await removeFromCart(selected.id);
+                            // Remove from local records list
+                            setRecords(prev => prev.filter(r => r.id !== selected.id));
+                            // Clear selection if this was the selected record
+                            if (selectedId === selected.id) {
+                              const remaining = records.filter(r => r.id !== selected.id);
+                              setSelectedId(remaining[0]?.id || null);
+                            }
+                            alert('Record removed from cart successfully!');
+                          } catch (err) {
+                            alert(`Failed to remove from cart: ${err.message}`);
+                          }
+                        }}
+                        className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition duration-150"
+                      >
+                        Remove from Cart
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="mt-2 text-gray-600">
@@ -1975,11 +2301,12 @@ function SudocEditor() {
               {/* Local MARC Fields */}
               <div className="p-6">
                 <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-                  <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                    <h3 className="text-lg font-bold text-gray-800">
-                      Local MARC Fields
-                    </h3>
-                    <div className="flex gap-2">
+                  <div className="px-6 py-4 border-b border-gray-200">
+                    <div className="flex justify-between items-center mb-2">
+                      <h3 className="text-lg font-bold text-gray-800">
+                        Local MARC Fields
+                      </h3>
+                      <div className="flex gap-2">
                       <button
                         onClick={() => setShowAddField(true)}
                         className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition duration-150"
@@ -1992,6 +2319,10 @@ function SudocEditor() {
                       >
                         + Create Boundwith
                       </button>
+                    </div>
+                    </div>
+                    <div className="px-6 py-2 bg-blue-50 text-sm text-blue-700">
+                      💡 <strong>Quick Edit:</strong> Click any field to edit • <strong>Enter</strong> to save • <strong>Esc</strong> to cancel • Auto-saves after 2 seconds
                     </div>
                   </div>
                   
@@ -2020,118 +2351,199 @@ function SudocEditor() {
                           </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                          {fields.map((field, index) => (
-                            <tr key={`field-${index}-${field.tag}`} className="hover:bg-gray-50 transition-colors">
-                              {editingField === index ? (
-                                // Edit Mode
-                                <>
-                                  <td className="px-4 py-3">
-                                    <input
-                                      type="text"
-                                      value={editedFields[index]?.tag || field.tag}
-                                      onChange={e => setEditedFields(prev => ({
-                                        ...prev,
-                                        [index]: { ...prev[index] || field, tag: e.target.value }
-                                      }))}
-                                      className="w-16 px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500"
-                                      maxLength={3}
-                                    />
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <div className="flex gap-2">
-                                      <input
-                                        type="text"
-                                        value={editedFields[index]?.ind1 || field.ind1}
-                                        onChange={e => setEditedFields(prev => ({
-                                          ...prev,
-                                          [index]: { ...prev[index] || field, ind1: e.target.value }
-                                        }))}
-                                        className="w-8 px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500"
-                                        maxLength={1}
-                                      />
-                                      <input
-                                        type="text"
-                                        value={editedFields[index]?.ind2 || field.ind2}
-                                        onChange={e => setEditedFields(prev => ({
-                                          ...prev,
-                                          [index]: { ...prev[index] || field, ind2: e.target.value }
-                                       }))}
-                                        className="w-8 px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500"
-                                        maxLength={1}
-                                      />
-                                    </div>
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <input
-                                      type="text"
-                                      value={Object.entries(editedFields[index]?.subfields || field.subfields)
-                                        .map(([code, val]) => `$${code} ${val}`).join(' ')}
-                                      onChange={e => {
-                                        const subfields = {};
-                                        e.target.value.split('$').forEach(part => {
-                                          if (!part) return;
-                                          const code = part[0];
-                                          const value = part.slice(1).trim();
-                                          if (code && value) {
-                                            subfields[code] = value;
-                                          }
-                                        });
-                                        setEditedFields(prev => ({
-                                          ...prev,
-                                          [index]: { ...prev[index] || field, subfields }
-                                        }));
-                                      }}
-                                      className="w-full px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500 font-mono"
-                                    />
-                                  </td>
-                                  <td className="px-4 py-3 text-right space-x-2">
-                                    <button
-                                      onClick={() => handleSaveField(index, editedFields[index] || field)}
-                                      disabled={isSaving}
-                                      className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-                                    >
-                                      {isSaving ? 'Saving...' : 'Save'}
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        setEditingField(null);
-                                        setEditedFields(prev => {
-                                          const next = { ...prev };
-                                          delete next[index];
-                                          return next;
-                                        });
-                                      }}
-                                      className="text-gray-600 hover:text-gray-800"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </td>
-                                </>
-                              ) : (
-                                // View Mode
-                                <>
-                                  <td className="px-4 py-3 font-mono">{field.tag}</td>
-                                  <td className="px-4 py-3 font-mono">{field.ind1}{field.ind2}</td>
-                                  <td className="px-4 py-3 font-mono">
-                                    {Object.entries(field.subfields)
-                                      .map(([code, val]) => (
-                                        <span key={`subfield-${code}`} className="mr-2">
-                                          <span className="text-blue-600">${code}</span> {val}
-                                        </span>
-                                      ))}
-                                  </td>
-                                  <td className="px-4 py-3 text-right">
-                                    <button
-                                      onClick={() => setEditingField(index)}
-                                      className="text-blue-600 hover:text-blue-800"
-                                    >
-                                      Edit
-                                    </button>
-                                  </td>
-                                </>
-                              )}
-                            </tr>
-                          ))}
+                          {Array.isArray(fields) ? (
+  fields.map((field, index) => (
+    <tr key={`field-${index}-${field.tag}`} className={`hover:bg-gray-50 transition-colors ${
+      editedFields[index] && editingField !== index ? 'bg-yellow-50 border-l-4 border-yellow-400' : ''
+    } ${editingField === index ? 'bg-blue-50 border-l-4 border-blue-400' : ''}`}>
+      {editingField === index ? (
+        // Edit Mode content...
+        <>
+          <td className="px-4 py-3">
+            <input
+              type="text"
+              value={editedFields[index]?.tag || field.tag}
+              onChange={e => {
+                setEditedFields(prev => ({
+                  ...prev,
+                  [index]: { ...prev[index] || field, tag: e.target.value }
+                }));
+                scheduleAutoSave(index);
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSaveField(index);
+                } else if (e.key === 'Escape') {
+                  setEditingField(null);
+                  setEditedFields(prev => {
+                    const next = { ...prev };
+                    delete next[index];
+                    return next;
+                  });
+                }
+              }}
+              className="w-16 px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500 bg-yellow-50"
+              maxLength={3}
+            />
+          </td>
+          <td className="px-4 py-3">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={editedFields[index]?.ind1 || field.ind1}
+                onChange={e => {
+                  setEditedFields(prev => ({
+                    ...prev,
+                    [index]: { ...prev[index] || field, ind1: e.target.value }
+                  }));
+                  scheduleAutoSave(index);
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSaveField(index);
+                  } else if (e.key === 'Escape') {
+                    setEditingField(null);
+                    setEditedFields(prev => {
+                      const next = { ...prev };
+                      delete next[index];
+                      return next;
+                    });
+                  }
+                }}
+
+                className="w-8 px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500 bg-yellow-50"
+                maxLength={1}
+              />
+              <input
+                type="text"
+                value={editedFields[index]?.ind2 || field.ind2}
+                onChange={e => {
+                  setEditedFields(prev => ({
+                    ...prev,
+                    [index]: { ...prev[index] || field, ind2: e.target.value }
+                  }));
+                  scheduleAutoSave(index);
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSaveField(index);
+                  } else if (e.key === 'Escape') {
+                    setEditingField(null);
+                    setEditedFields(prev => {
+                      const next = { ...prev };
+                      delete next[index];
+                      return next;
+                    });
+                  }
+                }}
+
+                className="w-8 px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500 bg-yellow-50"
+                maxLength={1}
+              />
+            </div>
+          </td>
+          <td className="px-4 py-3">
+            <input
+              type="text"
+              value={Object.entries(editedFields[index]?.subfields || field.subfields)
+                .map(([code, val]) => `$${code} ${val}`).join(' ')}
+              onChange={e => {
+                const subfields = {};
+                e.target.value.split('$').forEach(part => {
+                  if (!part) return;
+                  const code = part[0];
+                  const value = part.slice(1).trim();
+                  if (code && value) {
+                    subfields[code] = value;
+                  }
+                });
+                setEditedFields(prev => ({
+                  ...prev,
+                  [index]: { ...prev[index] || field, subfields }
+                }));
+                scheduleAutoSave(index);
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSaveField(index);
+                } else if (e.key === 'Escape') {
+                  setEditingField(null);
+                  setEditedFields(prev => {
+                    const next = { ...prev };
+                    delete next[index];
+                    return next;
+                  });
+                }
+              }}
+
+              className="w-full px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500 font-mono bg-yellow-50"
+              placeholder="$a Title $b Subtitle..."
+            />
+          </td>
+          <td className="px-4 py-3 text-right">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500 italic">
+                {isSaving ? 'Saving...' : 'Enter: Save • Esc: Cancel'}
+              </span>
+              <button
+                onClick={() => handleSaveField(index)}
+                disabled={isSaving}
+                className="px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 text-sm"
+                title="Save (Enter)"
+              >
+                ✓
+              </button>
+              <button
+                onClick={() => {
+                  setEditingField(null);
+                  setEditedFields(prev => {
+                    const next = { ...prev };
+                    delete next[index];
+                    return next;
+                  });
+                }}
+                className="px-2 py-1 text-gray-600 hover:text-gray-800 text-sm"
+                title="Cancel (Esc)"
+              >
+                ✕
+              </button>
+            </div>
+          </td>
+        </>
+      ) : (
+        // View Mode content...
+        <>
+          <td className="px-4 py-3 font-mono">{field.tag}</td>
+          <td className="px-4 py-3 font-mono">{field.ind1}{field.ind2}</td>
+          <td className="px-4 py-3 font-mono">
+            {Object.entries(field.subfields)
+              .map(([code, val]) => (
+                <span key={`subfield-${code}`} className="mr-2">
+                  <span className="text-blue-600">${code}</span> {val}
+                </span>
+              ))}
+          </td>
+          <td className="px-4 py-3 text-right">
+            <button
+              onClick={() => setEditingField(index)}
+              className="text-blue-600 hover:text-blue-800"
+            >
+              Edit
+            </button>
+          </td>
+        </>
+      )}
+    </tr>
+  ))
+) : (
+  <tr>
+    <td colSpan={4} className="p-4 text-center text-gray-500">No fields available</td>
+  </tr>
+)}
                         </tbody>
                       </table>
                     </div>
@@ -2260,7 +2672,8 @@ function SudocEditor() {
           onClose={() => setShowHostBrowser(false)}
           onLoadHost={loadHostFromBrowser}
           carts={carts}
-          selectedCart={selectedCart} // Add this prop
+          selectedCart={selectedCart}
+          loadCarts={loadCarts}
         />
       )}
     </div>

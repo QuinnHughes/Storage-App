@@ -17,7 +17,8 @@ from core.sudoc import (
     create_government_series_host_record, add_holdings_and_item_fields,
     _preferred_control_number, _strip_existing_link_fields,
     _extract_host_title, _extract_child_ids,
-    get_record_with_boundwith_info
+    get_record_with_boundwith_info,
+    build_boundwith_preview, build_normalized_child_title
 )
 from schemas.sudoc import (
     SudocSummary, 
@@ -69,6 +70,16 @@ class BoundwithRequest(BaseModel):
     related_record_ids: List[int]
     host_record: Optional[HostRecordData] = None
     holdings_data: Optional[HoldingsItemData] = None  # Add this field
+
+class BoundwithPreviewRequest(BaseModel):
+    record_ids: List[int]
+
+class BoundwithPreviewResponse(BaseModel):
+    host_title: str
+    publisher: Optional[str] = None
+    year_range: Optional[str] = None
+    subjects: List[str] = []
+    lines_774: List[Dict[str, str]] = []
 
 @router.get("/search", response_model=List[SudocSummary])
 def search_sudoc(
@@ -122,6 +133,11 @@ def add_record_to_cart(
     db: Session = Depends(get_db)
 ):
     """Add any record type (original, edited or created) to a cart"""
+    # First check if cart exists
+    cart = db.query(SudocCart).filter(SudocCart.id == cart_id).first()
+    if not cart:
+        raise HTTPException(status_code=404, detail="Cart not found")
+    
     # First try to get the record using our unified resolver
     record = get_marc_by_id(record_id, include_edits=True)
     if not record:
@@ -129,14 +145,19 @@ def add_record_to_cart(
         try:
             with sqlite3.connect(SQLITE_PATH) as conn:
                 cur = conn.cursor()
-                cur.execute("SELECT id FROM records WHERE id = ?", (record_id,))
+                cur.execute("SELECT rowid FROM records WHERE rowid = ?", (record_id,))
                 if not cur.fetchone():
                     raise HTTPException(status_code=404, detail="Record not found")
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error checking record: {str(e)}")
             
     # If we got here, record exists in some form
-    return crud.add_to_cart(db, cart_id, record_id)
+    try:
+        item = crud.add_to_cart(db, cart_id, record_id)
+        return {"message": "Record added to cart successfully", "item_id": item.id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error adding record to cart: {str(e)}")
 
 @router.delete("/cart/{cart_id}")
 def delete_cart(
@@ -161,7 +182,7 @@ def delete_cart(
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/carts/{cart_id}/records")
+@router.get("/cart/{cart_id}/records")
 async def get_cart_records(
     cart_id: int,
     page: int = Query(1, ge=1),
@@ -198,7 +219,7 @@ async def get_cart_records(
         items = []
         
         # First, check for created records in PostgreSQL
-        created_records = {}
+        postgres_records = {}
         created_query = db.query(models.SudocCreatedRecord).filter(
             models.SudocCreatedRecord.id.in_(record_ids)
         ).all()
@@ -211,15 +232,48 @@ async def get_cart_records(
             if marc_record:
                 title = get_title_from_record(marc_record)
             
-            created_records[record.id] = {
+            postgres_records[record.id] = {
                 "id": record.id,
                 "title": title,
                 "sudoc": "",  # Created hosts might not have SuDoc numbers
-                "oclc": ""
+                "oclc": "",
+                "type": "created"
+            }
+
+        # Check for edited records in PostgreSQL
+        edited_query = db.query(models.SudocEditedRecord).filter(
+            models.SudocEditedRecord.record_id.in_(record_ids)
+        ).all()
+        
+        for edited_record in edited_query:
+            # Parse MARC and extract title
+            marc_reader = MARCReader(BytesIO(edited_record.marc_data), to_unicode=True)
+            marc_record = next(marc_reader, None)
+            title = "Untitled"
+            sudoc = ""
+            oclc = ""
+            
+            if marc_record:
+                title = get_title_from_record(marc_record)
+                # Extract SuDoc from 086 field
+                f086 = marc_record.get_fields('086')
+                if f086:
+                    sudoc_subfields = f086[0].get_subfields('a')
+                    if sudoc_subfields:
+                        sudoc = sudoc_subfields[0]
+                # Extract OCLC from 035 field
+                oclc = get_oclc_number(marc_record) or ""
+            
+            postgres_records[edited_record.record_id] = {
+                "id": edited_record.record_id,
+                "title": title,
+                "sudoc": sudoc,
+                "oclc": oclc,
+                "type": "edited"
             }
         
         # Get remaining records from SQLite
-        remaining_ids = [rid for rid in record_ids if rid not in created_records]
+        remaining_ids = [rid for rid in record_ids if rid not in postgres_records]
         sqlite_records = {}
         
         if remaining_ids:
@@ -229,9 +283,9 @@ async def get_cart_records(
                 
                 placeholders = ','.join('?' for _ in remaining_ids)
                 query = f"""
-                    SELECT id, sudoc, title, oclc 
+                    SELECT rowid as id, sudoc, title, oclc 
                     FROM records 
-                    WHERE id IN ({placeholders})
+                    WHERE rowid IN ({placeholders})
                 """
                 
                 cursor.execute(query, remaining_ids)
@@ -247,12 +301,12 @@ async def get_cart_records(
         
         # Combine results maintaining order
         for rid in record_ids:
-            if rid in created_records:
-                items.append(created_records[rid])
+            if rid in postgres_records:
+                items.append(postgres_records[rid])
             elif rid in sqlite_records:
                 items.append(sqlite_records[rid])
             else:
-                items.append({"id": rid, "sudoc": "", "title": "Record not found", "oclc": ""})
+                items.append({"id": rid, "sudoc": "", "title": "Record not found", "oclc": "", "type": "missing"})
         
         return {
             "items": items,
@@ -368,15 +422,16 @@ async def create_boundwith(
 
         _strip_existing_link_fields(host_rec)
 
-        for cid in child_ids:
+        for ordinal, cid in enumerate(child_ids, 1):
             child_rec = get_marc_by_id(cid, include_edits=True)
             if not child_rec:
                 continue
             _strip_existing_link_fields(child_rec)
-            child_title = get_title_from_record(child_rec)
+            # Normalize child title for consistent 774 $t
+            child_title = build_normalized_child_title(child_rec)
             child_w = _preferred_control_number(child_rec, str(cid))
 
-            # 774 on host
+            # 774 on host with sequential numbering
             host_rec.add_field(
                 Field(
                     tag='774',
@@ -384,7 +439,8 @@ async def create_boundwith(
                     subfields=[
                         Subfield('i', 'Contains (work):'),
                         Subfield('t', child_title),
-                        Subfield('w', child_w)
+                        Subfield('w', child_w),
+                        Subfield('g', f'no: {ordinal}')
                     ]
                 )
             )
@@ -442,14 +498,15 @@ async def create_boundwith(
         host_w = f"(LOCAL){host_id}"
     _strip_existing_link_fields(host_rec)
 
-    for cid in child_ids:
+    for ordinal, cid in enumerate(child_ids, 1):
         child_rec = get_marc_by_id(cid, include_edits=True)
         if not child_rec:
             continue
         _strip_existing_link_fields(child_rec)
-        child_title = get_title_from_record(child_rec)
+        # Normalized title for 774
+        child_title = build_normalized_child_title(child_rec)
         child_w = _preferred_control_number(child_rec, str(cid))
-        # 774 on host
+        # 774 on host with sequential numbering
         host_rec.add_field(
             Field(
                 tag='774',
@@ -457,7 +514,8 @@ async def create_boundwith(
                 subfields=[
                     Subfield('i', 'Contains (work):'),
                     Subfield('t', child_title),
-                    Subfield('w', child_w)
+                    Subfield('w', child_w),
+                    Subfield('g', f'no: {ordinal}')
                 ]
             )
         )
@@ -483,6 +541,23 @@ async def create_boundwith(
         "host_id": host_id,
         "child_ids": child_ids
     }
+
+@router.post("/boundwith/build", response_model=BoundwithPreviewResponse)
+def boundwith_preview(
+    body: BoundwithPreviewRequest,
+    current_user = Depends(require_cataloger)
+):
+    """Return an auto-generated preview for a prospective boundwith host record."""
+    if not body.record_ids:
+        raise HTTPException(status_code=400, detail="record_ids required")
+    data = build_boundwith_preview(body.record_ids)
+    return BoundwithPreviewResponse(
+        host_title=data.get("host_title", "Collection."),
+        publisher=data.get("publisher"),
+        year_range=data.get("year_range"),
+        subjects=data.get("subjects", []),
+        lines_774=data.get("lines_774", [])
+    )
 
 # -------- Host Listing / Search --------
 
@@ -665,3 +740,82 @@ async def lookup_record_info(
         if isinstance(e, HTTPException):
             raise e
         raise HTTPException(status_code=500, detail=f"Error retrieving record: {str(e)}")
+
+@router.patch("/{record_id}/field/{field_index}")
+async def update_marc_field(
+    record_id: int,
+    field_index: int,
+    field_update: dict = Body(...),
+    current_user = Depends(require_cataloger),
+    db: Session = Depends(get_db)
+):
+    """Update a single MARC field in a record"""
+    # Get the record
+    record = get_marc_by_id(record_id, include_edits=True)
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+    
+    # Make sure the field index is valid
+    fields = list(record.get_fields())
+    if field_index < 0 or field_index >= len(fields):
+        raise HTTPException(status_code=404, detail=f"Field index {field_index} out of range (0-{len(fields)-1})")
+    
+    # Get the field to be updated
+    old_field = fields[field_index]
+    
+    try:
+        # Create a new field based on the update
+        if old_field.is_control_field():
+            # Control field (no indicators/subfields)
+            new_field = Field(
+                tag=field_update.get("tag", old_field.tag),
+                data=field_update.get("data", old_field.data)
+            )
+        else:
+            # Regular data field
+            subfields = []
+            for subfield in field_update.get("subfields", []):
+                subfields.append(
+                    Subfield(subfield["code"], subfield["value"])
+                )
+            
+            indicators = field_update.get("indicators", [old_field.indicator1, old_field.indicator2])
+            if len(indicators) < 2:
+                indicators = [indicators[0], " "] if indicators else [" ", " "]
+                
+            new_field = Field(
+                tag=field_update.get("tag", old_field.tag),
+                indicators=[
+                    indicators[0] or " ",
+                    indicators[1] or " "
+                ],
+                subfields=subfields
+            )
+        
+        # Replace the field in the record at the same position
+        # Use a more reliable method to replace the field in-place
+        fields_list = list(record.fields)
+        
+        # Find the exact field object in the list
+        for i, field_obj in enumerate(fields_list):
+            if field_obj == old_field:
+                # Replace it directly at this position
+                fields_list[i] = new_field
+                break
+        
+        # Clear all fields and add them back in the correct order
+        for field_to_remove in list(record.fields):
+            record.remove_field(field_to_remove)
+        
+        # Add all fields back in order
+        for field_obj in fields_list:
+            record.add_field(field_obj)
+        
+        # Save the updated record
+        crud.save_edited_record(db, record_id, record.as_marc(), current_user.id)
+        
+        # Return updated fields
+        return get_record_fields(record_id)
+    except Exception as e:
+        print(f"Error updating field: {e}")
+        raise HTTPException(status_code=500, detail=f"Error updating field: {str(e)}")
