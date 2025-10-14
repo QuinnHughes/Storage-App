@@ -34,6 +34,7 @@ class Analytics(Base):
     call_number             = Column(String, nullable=True)
     description             = Column(String, nullable=True)
     status                  = Column(String, nullable=True)
+    has_item_link           = Column(Boolean, default=False, nullable=False, index=True)
 
 
 

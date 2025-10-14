@@ -27,6 +27,7 @@ def search_analytics(
     item_policy: Optional[str]          = Query(None, description="exact match on item_policy"),
     location_code: Optional[str]        = Query(None, description="exact match on location_code"),
     status: Optional[str]               = Query(None, description="exact match on status"),
+    has_item_link: Optional[bool]       = Query(None, description="filter by item link status"),
     db: Session                         = Depends(get_db),
 ):
     query = db.query(models.Analytics)
@@ -46,11 +47,13 @@ def search_analytics(
         query = query.filter(models.Analytics.location_code == location_code)
     if status:
         query = query.filter(models.Analytics.status == status)
+    if has_item_link is not None:
+        query = query.filter(models.Analytics.has_item_link == has_item_link)
 
     results = query.all()
     # back-fill missing alt call numbers from Items if needed
     for rec in results:
-        if rec.alternative_call_number is None:
+        if rec.alternative_call_number is None and rec.has_item_link:
             item = (
                 db.query(models.Item)
                   .filter(models.Item.barcode == rec.barcode)

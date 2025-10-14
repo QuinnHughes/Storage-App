@@ -63,15 +63,35 @@ def search_records(
         for r in rows
     ]
 
-def get_record_fields(record_id: int) -> List[dict]:
+def get_record_fields(record_id: int, preserve_order: bool = False) -> List[dict]:
     """Get MARC fields for a record"""
     record = get_marc_by_id(record_id, include_edits=True)  # Always check for edits first
     if not record:
         return []
     
-    return _extract_fields_from_record(record)
+    # Sort the actual MARC record fields if not preserving order
+    if not preserve_order:
+        _sort_marc_record_fields(record)
+    
+    return _extract_fields_from_record(record, preserve_order=preserve_order)
 
-def _extract_fields_from_record(record) -> List[dict]:
+def _sort_marc_record_fields(record):
+    """Sort fields in a MARC record by tag number"""
+    if not record:
+        return
+    
+    # Get all fields and sort them by tag
+    all_fields = list(record.fields)
+    all_fields.sort(key=lambda field: field.tag)
+    
+    # Clear all fields from the record
+    record.fields = []
+    
+    # Add them back in sorted order
+    for field in all_fields:
+        record.add_field(field)
+
+def _extract_fields_from_record(record, preserve_order: bool = False) -> List[dict]:
     """Extract fields from a pymarc Record object"""
     if not record:
         return []
@@ -129,7 +149,7 @@ def _extract_fields_from_record(record) -> List[dict]:
                 "subfields": subfields
             })
     
-    # Sort fields by tag number for proper display order
+    # Always sort fields by tag number for proper MARC order
     result.sort(key=lambda x: x["tag"])
     return result
 
@@ -286,65 +306,403 @@ def get_oclc_number(rec: Record) -> Optional[str]:
                 return f"(OCoLC){s}"
     return None
 
-def build_serial_008(year: Optional[str] = None) -> str:
-    """Build a proper serial-style 008 field"""
+def build_enhanced_008(child_records: List[Record], year_range: Optional[str] = None) -> str:
+    """Build a comprehensive 008 field based on analysis of child records"""
     from datetime import datetime
     today = datetime.now().strftime('%y%m%d')
+    
+    # Analyze child records for 008 field data
+    analysis = _analyze_records_for_008(child_records)
     
     # Date created (positions 0-5)
     result = today
     
-    # Date type and dates (positions 6-14)
-    if year:
-        # Continuing resource with start year
-        result += f"c{year[:4]:<4}9999"
-    else:
-        # Unknown dates
-        result += "n||||||||"
+    # Date type and dates (positions 6-14) - analyze publication patterns
+    date_type, start_year, end_year = _determine_date_pattern(child_records, year_range)
+    result += date_type
     
-    # Place of publication (positions 15-17) - default to unknown
-    result += "|||"
+    # Format years properly (4 digits each)
+    start_str = (start_year or "||||")[:4].ljust(4, '|') if start_year != "||||" else "||||"
+    end_str = (end_year or "||||")[:4].ljust(4, '|') if end_year != "||||" else "||||"
+    result += start_str + end_str
     
-    # Frequency, regularity, type (positions 18-20)
-    result += "|||"
+    # Place of publication (positions 15-17) - analyze 260/264 fields
+    place = _determine_place_of_publication(child_records)
+    result += place
     
-    # Form of item (position 21-22)
-    result += "  "
+    # Frequency (position 18) - analyze for serial patterns
+    frequency = _determine_frequency(child_records)
+    result += frequency
     
-    # Nature of contents (position 23)
-    result += " "
+    # Regularity (position 19)
+    regularity = "r" if frequency in "abcdefghijkmqstwz" else "|"
+    result += regularity
     
-    # Government publication (position 24) - assume government pub
-    result += "f"
+    # Type of continuing resource (position 20)
+    resource_type = _determine_resource_type(child_records)
+    result += resource_type
     
-    # Conference publication (position 25)
-    result += "0"
+    # Form of item (position 21) - analyze for format
+    form = _determine_form_of_item(child_records)
+    result += form
     
-    # Festschrift (position 26)
-    result += "0"
+    # Form of original item (position 22)
+    result += " "  # Usually blank for government docs
     
-    # Index (position 27)
-    result += "0"
+    # Nature of entire work (position 23) - analyze subjects/content
+    nature = _determine_nature_of_work(child_records)
+    result += nature
+    
+    # Government publication (position 24) - analyze for gov pub indicators
+    gov_pub = _determine_government_publication(child_records)
+    result += gov_pub
+    
+    # Conference publication (position 25) - analyze for conference indicators
+    conference = _determine_conference_publication(child_records)
+    result += conference
+    
+    # Festschrift (position 26) - analyze titles for festschrift indicators
+    festschrift = _determine_festschrift(child_records)
+    result += festschrift
+    
+    # Index (position 27) - analyze for index indicators
+    index = _determine_index_present(child_records)
+    result += index
     
     # Undefined (position 28)
     result += " "
     
-    # Fiction (position 29)
-    result += "0"
+    # Fiction (position 29) - analyze subjects for fiction
+    fiction = _determine_fiction(child_records)
+    result += fiction
     
-    # Biography (position 30)
-    result += " "
+    # Biography (position 30) - analyze subjects for biographical content
+    biography = _determine_biography(child_records)
+    result += biography
     
-    # Language (positions 31-33)
-    result += "eng"
+    # Language (positions 31-33) - analyze 041 fields or default
+    language = _determine_language(child_records)
+    result += language
     
     # Modified record (position 34)
     result += " "
     
     # Cataloging source (position 35)
-    result += "d"
+    result += "d"  # Other
     
     return result
+
+def _analyze_records_for_008(records: List[Record]) -> Dict[str, Any]:
+    """Analyze child records to extract 008 field information"""
+    analysis = {
+        'years': [],
+        'places': [],
+        'languages': [],
+        'subjects': [],
+        'gov_indicators': [],
+        'titles': [],
+        'frequencies': []
+    }
+    
+    for record in records:
+        # Extract publication years from 260/264 fields
+        for field in record.get_fields('260', '264'):
+            for subfield in field.get_subfields('c'):
+                # Extract 4-digit years
+                import re
+                years = re.findall(r'\b(19|20)\d{2}\b', subfield)
+                analysis['years'].extend(years)
+        
+        # Extract places from 260/264 fields
+        for field in record.get_fields('260', '264'):
+            for subfield in field.get_subfields('a'):
+                analysis['places'].append(subfield)
+        
+        # Extract languages from 041 fields or default to 008 if available
+        lang_fields = record.get_fields('041')
+        if lang_fields:
+            for field in lang_fields:
+                for subfield in field.get_subfields('a'):
+                    analysis['languages'].append(subfield[:3])
+        else:
+            # Try to extract from existing 008 field
+            f008 = record.get_fields('008')
+            if f008 and len(f008[0].data) >= 35:
+                lang = f008[0].data[35:38]
+                if lang and lang != '   ':
+                    analysis['languages'].append(lang)
+        
+        # Extract subjects
+        for field in record.get_fields('650', '651', '653'):
+            for subfield in field.get_subfields('a'):
+                analysis['subjects'].append(subfield.lower())
+        
+        # Extract government publication indicators
+        for field in record.get_fields('086'):  # SuDoc numbers indicate gov pubs
+            analysis['gov_indicators'].append('f')
+            
+        # Extract titles for pattern analysis
+        f245 = record.get_fields('245')
+        if f245:
+            title = ""
+            for subfield in f245[0].get_subfields('a', 'b'):
+                title += subfield + " "
+            analysis['titles'].append(title.strip().lower())
+    
+    return analysis
+
+def _determine_date_pattern(records: List[Record], year_range: Optional[str]) -> tuple:
+    """Determine date type and start/end years based on record analysis"""
+    analysis = _analyze_records_for_008(records)
+    
+    if not analysis['years']:
+        if year_range:
+            # Parse year range like "1990-1995" or "1990-"
+            if '-' in year_range:
+                parts = year_range.split('-')
+                start = parts[0].strip()
+                end = parts[1].strip() if len(parts) > 1 and parts[1].strip() else "9999"
+                return ("c", start, end)  # Continuing resource
+            else:
+                return ("s", year_range, year_range)  # Single year
+        return ("n", "||||", "||||")  # Unknown dates
+    
+    years = sorted(set(analysis['years']))
+    start_year = years[0]
+    end_year = years[-1]
+    
+    # Determine date type based on pattern
+    if len(years) == 1:
+        return ("s", start_year, start_year)  # Single date
+    elif len(years) > 5:  # Multiple years suggests continuing resource
+        # Check if it's ongoing (recent end date suggests continuation)
+        from datetime import datetime
+        current_year = datetime.now().year
+        if int(end_year) >= current_year - 2:
+            return ("c", start_year, "9999")  # Continuing
+        else:
+            return ("d", start_year, end_year)  # Ceased publication
+    else:
+        return ("m", start_year, end_year)  # Multiple dates
+
+def _determine_place_of_publication(records: List[Record]) -> str:
+    """Determine place of publication code"""
+    analysis = _analyze_records_for_008(records)
+    
+    # Common place codes for government publications
+    us_indicators = ['washington', 'dc', 'united states', 'u.s.', 'gpo', 'government printing']
+    
+    for place in analysis['places']:
+        place_lower = place.lower()
+        for indicator in us_indicators:
+            if indicator in place_lower:
+                return "dcu"  # Washington, D.C.
+    
+    # Default to US if no specific place found
+    return "xxu"  # United States
+
+def _determine_frequency(records: List[Record]) -> str:
+    """Determine frequency of publication"""
+    analysis = _analyze_records_for_008(records)
+    
+    # Analyze titles for frequency indicators
+    frequency_indicators = {
+        'annual': 'a',
+        'yearly': 'a',
+        'monthly': 'm',
+        'quarterly': 'q',
+        'weekly': 'w',
+        'daily': 'd',
+        'biennial': 'b',
+        'triennial': 'c',
+        'semiannual': 'f',
+        'bimonthly': 'g',
+        'semiweekly': 's'
+    }
+    
+    for title in analysis['titles']:
+        for indicator, code in frequency_indicators.items():
+            if indicator in title:
+                return code
+    
+    # If multiple years but no clear frequency, assume annual
+    if len(set(analysis['years'])) > 1:
+        return 'a'  # Annual
+    
+    return '|'  # Unknown frequency
+
+def _determine_resource_type(records: List[Record]) -> str:
+    """Determine type of continuing resource"""
+    analysis = _analyze_records_for_008(records)
+    
+    # Analyze titles and subjects for resource type
+    type_indicators = {
+        'report': 'm',  # Monographic series
+        'bulletin': 'p',  # Periodical
+        'journal': 'p',  # Periodical
+        'newsletter': 'n',  # Newsletter
+        'directory': 'd',  # Directory
+        'yearbook': 'a',  # Annual
+        'proceedings': 'm',  # Monographic series
+        'series': 'm'  # Monographic series
+    }
+    
+    for title in analysis['titles']:
+        for indicator, code in type_indicators.items():
+            if indicator in title:
+                return code
+    
+    # Government publications are often monographic series
+    if any('f' in gov for gov in analysis['gov_indicators']):
+        return 'm'
+    
+    return '|'  # Unknown
+
+def _determine_form_of_item(records: List[Record]) -> str:
+    """Determine form of original item"""
+    # For now, assume print unless electronic indicators found
+    # Could be enhanced to check for electronic resource indicators
+    return ' '  # None of the following (print)
+
+def _determine_nature_of_work(records: List[Record]) -> str:
+    """Determine nature of entire work"""
+    analysis = _analyze_records_for_008(records)
+    
+    # Analyze subjects for content type
+    nature_indicators = {
+        'statistics': 's',
+        'statistical': 's',
+        'bibliography': 'b',
+        'catalog': 'c',
+        'dictionary': 'd',
+        'encyclopedia': 'e',
+        'handbook': 'h',
+        'index': 'i',
+        'law': 'l',
+        'patent': 'p',
+        'standard': 't',
+        'technical report': 't',
+        'thesis': 't',
+        'treaty': 'y'
+    }
+    
+    for subject in analysis['subjects']:
+        for indicator, code in nature_indicators.items():
+            if indicator in subject:
+                return code
+    
+    return ' '  # None specified
+
+def _determine_government_publication(records: List[Record]) -> str:
+    """Determine government publication level"""
+    analysis = _analyze_records_for_008(records)
+    
+    # Check for SuDoc numbers (086 fields) which indicate government publications
+    for record in records:
+        if record.get_fields('086'):
+            return 'f'  # Federal government
+    
+    # Check subjects for government indicators
+    gov_subjects = ['government', 'federal', 'department', 'agency']
+    for subject in analysis['subjects']:
+        for gov_indicator in gov_subjects:
+            if gov_indicator in subject:
+                return 'f'  # Federal government
+    
+    return ' '  # Not a government publication
+
+def _determine_conference_publication(records: List[Record]) -> str:
+    """Determine if conference publication"""
+    analysis = _analyze_records_for_008(records)
+    
+    conference_indicators = ['conference', 'symposium', 'workshop', 'meeting', 'proceedings']
+    
+    for title in analysis['titles']:
+        for indicator in conference_indicators:
+            if indicator in title:
+                return '1'  # Conference publication
+    
+    for subject in analysis['subjects']:
+        for indicator in conference_indicators:
+            if indicator in subject:
+                return '1'  # Conference publication
+    
+    return '0'  # Not a conference publication
+
+def _determine_festschrift(records: List[Record]) -> str:
+    """Determine if festschrift"""
+    analysis = _analyze_records_for_008(records)
+    
+    festschrift_indicators = ['festschrift', 'tribute', 'honor', 'memorial', 'commemoration']
+    
+    for title in analysis['titles']:
+        for indicator in festschrift_indicators:
+            if indicator in title:
+                return '1'  # Is a festschrift
+    
+    return '0'  # Not a festschrift
+
+def _determine_index_present(records: List[Record]) -> str:
+    """Determine if index is present"""
+    analysis = _analyze_records_for_008(records)
+    
+    index_indicators = ['index', 'indexes', 'indexed']
+    
+    for title in analysis['titles']:
+        for indicator in index_indicators:
+            if indicator in title:
+                return '1'  # Index present
+    
+    for subject in analysis['subjects']:
+        for indicator in index_indicators:
+            if indicator in subject:
+                return '1'  # Index present
+    
+    return '0'  # No index
+
+def _determine_fiction(records: List[Record]) -> str:
+    """Determine if fiction"""
+    analysis = _analyze_records_for_008(records)
+    
+    # Government documents are typically not fiction
+    fiction_indicators = ['fiction', 'novel', 'story', 'stories']
+    
+    for subject in analysis['subjects']:
+        for indicator in fiction_indicators:
+            if indicator in subject:
+                return '1'  # Fiction
+    
+    return '0'  # Not fiction
+
+def _determine_biography(records: List[Record]) -> str:
+    """Determine biographical content level"""
+    analysis = _analyze_records_for_008(records)
+    
+    bio_indicators = ['biography', 'biographical', 'memoir', 'autobiography']
+    
+    for subject in analysis['subjects']:
+        for indicator in bio_indicators:
+            if indicator in subject:
+                return 'b'  # Biography
+    
+    for title in analysis['titles']:
+        for indicator in bio_indicators:
+            if indicator in title:
+                return 'b'  # Biography
+    
+    return ' '  # No biographical content
+
+def _determine_language(records: List[Record]) -> str:
+    """Determine primary language"""
+    analysis = _analyze_records_for_008(records)
+    
+    if analysis['languages']:
+        # Return most common language
+        from collections import Counter
+        lang_counts = Counter(analysis['languages'])
+        return lang_counts.most_common(1)[0][0]
+    
+    return 'eng'  # Default to English
 
 def create_government_series_host_record(
     title: str,
@@ -352,13 +710,17 @@ def create_government_series_host_record(
     publisher: Optional[str],
     series_number: Optional[str],
     year: Optional[str],
-    subjects: Optional[List[str]]
+    subjects: Optional[List[str]],
+    child_records: Optional[List[Record]] = None
 ) -> Record:
-    """Create a new MARC record for a government series host"""
+    """Create a new MARC record for a government series host with enhanced 008 field"""
     rec = Record(force_utf8=True)
     rec.leader = "00000cas a2200000   4500"  # Changed to 'cas' for continuing resource
-    # 008 - proper serial format
-    rec.add_field(Field(tag='008', data=build_serial_008(year)))
+    # 008 - enhanced format using child record analysis
+    if child_records:
+        rec.add_field(Field(tag='008', data=build_enhanced_008(child_records, year)))
+    else:
+        rec.add_field(Field(tag='008', data=build_serial_008(year)))
     # 245
     rec.add_field(Field(tag='245', indicators=['0','0'], subfields=[
         Subfield('a', title.rstrip(' /:;') + '.')
@@ -443,6 +805,72 @@ def _strip_existing_link_fields(rec: Record):
             remove.append(f)
     for f in remove:
         rec.remove_field(f)
+
+def _extract_sorting_info(record: Record) -> dict:
+    """Extract date and enumeration information for sorting 774 fields"""
+    import re
+    
+    # Extract date information
+    date_sort = None
+    
+    # Try 008 field for date
+    field_008 = record.get_fields('008')
+    if field_008:
+        date_data = field_008[0].data
+        if len(date_data) >= 11:
+            # Extract date1 (positions 7-10)
+            date1 = date_data[7:11]
+            if date1.isdigit():
+                date_sort = int(date1)
+    
+    # Try 260/264 fields for publication date
+    if not date_sort:
+        for tag in ['264', '260']:
+            for field in record.get_fields(tag):
+                for subfield in field.get_subfields('c'):
+                    # Extract first 4-digit year found
+                    year_match = re.search(r'\b(19|20)\d{2}\b', subfield)
+                    if year_match:
+                        date_sort = int(year_match.group())
+                        break
+                if date_sort:
+                    break
+            if date_sort:
+                break
+    
+    # Extract enumeration information from title
+    enum_sort = None
+    title_field = record.get_fields('245')
+    if title_field:
+        title = title_field[0].get_subfields('a')[0] if title_field[0].get_subfields('a') else ""
+        
+        # Look for volume, number, part patterns
+        vol_match = re.search(r'\bv(?:ol(?:ume)?)?\.?\s*(\d+)', title, re.IGNORECASE)
+        no_match = re.search(r'\bn(?:o|umber)?\.?\s*(\d+)', title, re.IGNORECASE)
+        pt_match = re.search(r'\bp(?:ar)?t\.?\s*(\d+)', title, re.IGNORECASE)
+        
+        if vol_match:
+            enum_sort = int(vol_match.group(1)) * 1000  # Volume gets priority
+        elif no_match:
+            enum_sort = int(no_match.group(1))
+        elif pt_match:
+            enum_sort = int(pt_match.group(1))
+    
+    return {
+        'date': date_sort or 9999,  # Unknown dates sort last
+        'enumeration': enum_sort or 9999,  # Unknown enum sorts last
+        'title': title_field[0].get_subfields('a')[0] if title_field and title_field[0].get_subfields('a') else ""
+    }
+
+def _sort_child_records_for_774(child_data: list) -> list:
+    """Sort child records by date then enumeration for proper 774 field ordering"""
+    def sort_key(item):
+        record_id, record = item
+        info = _extract_sorting_info(record)
+        # Primary sort by date, secondary by enumeration, tertiary by title
+        return (info['date'], info['enumeration'], info['title'])
+    
+    return sorted(child_data, key=sort_key)
 
 def _extract_host_title(record: Record) -> str:
     """Extract title from host record for display"""
@@ -585,8 +1013,12 @@ def build_boundwith_preview(record_ids: List[int]) -> Dict[str, Any]:
         host_root = build_normalized_child_title(recs[0])
     host_title = host_root + " Collection."
 
+    # Sort child records for proper 774 ordering
+    child_data = list(zip(record_ids, recs))
+    sorted_child_data = _sort_child_records_for_774(child_data)
+    
     lines_774: List[Dict[str,str]] = []
-    for ordinal, (rid, r) in enumerate(zip(record_ids, recs), 1):
+    for ordinal, (rid, r) in enumerate(sorted_child_data, 1):
         lines_774.append(build_774_line(r, str(rid), ordinal))
 
     return {

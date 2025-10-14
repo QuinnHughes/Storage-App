@@ -10,6 +10,31 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      '/catalog': {
+        target: 'http://localhost:8000/api',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/analytics': {
+        target: 'http://localhost:8000/api',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/users': {
+        target: 'http://localhost:8000/api',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/dashboard': {
+        target: 'http://localhost:8000/api',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/strategic-accession': {
+        target: 'http://localhost:8000/api',
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
 });

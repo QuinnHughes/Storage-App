@@ -1242,6 +1242,8 @@ function SudocEditor() {
   const [workingMode, setWorkingMode] = useState('checkout');
   const [showAddField, setShowAddField] = useState(false);
   const [loading, setLoading] = useState(false); // Add this line
+  const [isTyping, setIsTyping] = useState(false);
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const [newField945, setNewField945] = useState({
     l: 'ssd',
     i: '',
@@ -1473,27 +1475,50 @@ function SudocEditor() {
   // Auto-save functionality with debouncing
   const autoSaveTimeoutRef = useRef(null);
   const savingFieldsRef = useRef(new Set());
+  const typingTimeoutRef = useRef(null);
   
   const scheduleAutoSave = (fieldIndex) => {
+    // Skip if auto-save is disabled
+    if (!autoSaveEnabled) {
+      return;
+    }
+    
     // Clear any existing timeout for this field
     if (autoSaveTimeoutRef.current) {
       clearTimeout(autoSaveTimeoutRef.current);
     }
     
-    // Don't schedule if already saving this field
+    // Clear typing timeout and set typing state
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    setIsTyping(true);
+    
+    // Reset typing state after a short delay
+    typingTimeoutRef.current = setTimeout(() => {
+      setIsTyping(false);
+    }, 500);
+    
+    // Don't schedule if already saving this field or user is typing
     if (savingFieldsRef.current.has(fieldIndex)) {
       return;
     }
     
     autoSaveTimeoutRef.current = setTimeout(() => {
-      handleSaveField(fieldIndex, true); // true flag indicates auto-save
-    }, 1000); // Auto-save after 1 second of inactivity
+      // Double-check user isn't typing and auto-save is still enabled
+      if (!isTyping && autoSaveEnabled) {
+        handleSaveField(fieldIndex, true); // true flag indicates auto-save
+      }
+    }, 4000); // Auto-save after 4 seconds of inactivity
   };
 
   // Update the handleSaveField function to connect to your existing backend endpoint
   const handleSaveField = async (fieldIndex, isAutoSave = false) => {
+    console.log(`handleSaveField called: fieldIndex=${fieldIndex}, isAutoSave=${isAutoSave}`);
+    
     // Prevent duplicate saves
     if (savingFieldsRef.current.has(fieldIndex)) {
+      console.log(`Already saving field ${fieldIndex}, skipping...`);
       return;
     }
     
@@ -1538,26 +1563,27 @@ function SudocEditor() {
       
       // Update local state with the array of fields returned from the API
       const updatedFields = await response.json();
+      console.log(`Received ${updatedFields.length} fields from server after saving field ${fieldIndex}`);
       
       // IMPORTANT: Only update the fields for this specific record ID
-      setMarcFields(prev => ({
-        ...prev,
-        [selectedId]: updatedFields
-      }));
+      setMarcFields(prev => {
+        console.log(`Updating marcFields for record ${selectedId}: ${prev[selectedId]?.length || 0} -> ${updatedFields.length} fields`);
+        return {
+          ...prev,
+          [selectedId]: updatedFields
+        };
+      });
       
-      // Clear edited state for this field
-      const newEditedFields = { ...editedFields };
-      delete newEditedFields[fieldIndex];
-      setEditedFields(newEditedFields);
-      
-      // Exit edit mode
+      // Clear ALL edited state since field indexes may have changed due to sorting
+      setEditedFields({});
       setEditingField(null);
+      console.log(`Cleared all edited state after save - fields are now sorted`);
       
       // Show success notification (only for manual saves)
       if (!isAutoSave) {
         // Use a more subtle notification instead of alert
         const notification = document.createElement('div');
-        notification.textContent = 'Field saved successfully';
+        notification.textContent = 'Field saved successfully - fields reordered numerically';
         notification.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded shadow-lg z-50';
         document.body.appendChild(notification);
         setTimeout(() => document.body.removeChild(notification), 3000);
@@ -1565,6 +1591,65 @@ function SudocEditor() {
     } catch (error) {
       console.error("Error saving field:", error);
       alert(`Failed to save: ${error.message}`);
+    } finally {
+      setIsSaving(false);
+      savingFieldsRef.current.delete(fieldIndex);
+    }
+  };
+
+  // Delete field function
+  const handleDeleteField = async (fieldIndex) => {
+    if (!confirm('Are you sure you want to delete this field?')) {
+      return;
+    }
+
+    // Prevent delete if already saving
+    if (savingFieldsRef.current.has(fieldIndex)) {
+      alert('Cannot delete field while saving');
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      savingFieldsRef.current.add(fieldIndex);
+      
+      console.log(`Deleting field at index ${fieldIndex}`);
+      
+      const response = await apiFetch(`/catalog/sudoc/${selectedId}/field/${fieldIndex}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to delete field: ${response.status}`);
+      }
+      
+      // Update local state with the array of fields returned from the API
+      const updatedFields = await response.json();
+      console.log(`Received ${updatedFields.length} fields from server after deleting field ${fieldIndex}`);
+      
+      // Update the fields for this record
+      setMarcFields(prev => ({
+        ...prev,
+        [selectedId]: updatedFields
+      }));
+      
+      // Clear any edited state for fields (indexes may have shifted)
+      setEditedFields({});
+      setEditingField(null);
+      
+      // Show success notification
+      const notification = document.createElement('div');
+      notification.textContent = 'Field deleted successfully - fields reordered numerically';
+      notification.className = 'fixed top-4 right-4 bg-red-500 text-white px-4 py-2 rounded shadow-lg z-50';
+      document.body.appendChild(notification);
+      setTimeout(() => document.body.removeChild(notification), 3000);
+      
+    } catch (error) {
+      console.error("Error deleting field:", error);
+      alert(`Failed to delete field: ${error.message}`);
     } finally {
       setIsSaving(false);
       savingFieldsRef.current.delete(fieldIndex);
@@ -2245,7 +2330,16 @@ useEffect(() => {
                   <h2 className="text-2xl font-bold text-gray-800">
                     {formatItemDisplay(selected)}
                   </h2>
-                  <div className="space-x-3">
+                  <div className="flex items-center space-x-3">
+                    <label className="flex items-center text-sm text-gray-600">
+                      <input
+                        type="checkbox"
+                        checked={autoSaveEnabled}
+                        onChange={(e) => setAutoSaveEnabled(e.target.checked)}
+                        className="mr-2"
+                      />
+                      Auto-save
+                    </label>
                     <button
                       onClick={() => download([selected.id])}
                       className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition duration-150"
@@ -2320,9 +2414,6 @@ useEffect(() => {
                         + Create Boundwith
                       </button>
                     </div>
-                    </div>
-                    <div className="px-6 py-2 bg-blue-50 text-sm text-blue-700">
-                      💡 <strong>Quick Edit:</strong> Click any field to edit • <strong>Enter</strong> to save • <strong>Esc</strong> to cancel • Auto-saves after 2 seconds
                     </div>
                   </div>
                   
@@ -2487,7 +2578,17 @@ useEffect(() => {
           <td className="px-4 py-3 text-right">
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-500 italic">
-                {isSaving ? 'Saving...' : 'Enter: Save • Esc: Cancel'}
+                {isSaving ? (
+                  <span className="text-blue-600">Saving...</span>
+                ) : isTyping ? (
+                  <span className="text-orange-500">Typing...</span>
+                ) : !autoSaveEnabled ? (
+                  <span className="text-red-500">Auto-save disabled</span>
+                ) : autoSaveTimeoutRef.current ? (
+                  <span className="text-yellow-600">Auto-save pending</span>
+                ) : (
+                  'Enter: Save • Esc: Cancel'
+                )}
               </span>
               <button
                 onClick={() => handleSaveField(index)}
@@ -2511,6 +2612,14 @@ useEffect(() => {
               >
                 ✕
               </button>
+              <button
+                onClick={() => handleDeleteField(index)}
+                disabled={isSaving}
+                className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 text-sm"
+                title="Delete field"
+              >
+                🗑️
+              </button>
             </div>
           </td>
         </>
@@ -2528,12 +2637,21 @@ useEffect(() => {
               ))}
           </td>
           <td className="px-4 py-3 text-right">
-            <button
-              onClick={() => setEditingField(index)}
-              className="text-blue-600 hover:text-blue-800"
-            >
-              Edit
-            </button>
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                onClick={() => setEditingField(index)}
+                className="text-blue-600 hover:text-blue-800 text-sm"
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => handleDeleteField(index)}
+                className="text-red-600 hover:text-red-800 text-sm"
+                title="Delete field"
+              >
+                Delete
+              </button>
+            </div>
           </td>
         </>
       )}

@@ -18,7 +18,8 @@ from core.sudoc import (
     _preferred_control_number, _strip_existing_link_fields,
     _extract_host_title, _extract_child_ids,
     get_record_with_boundwith_info,
-    build_boundwith_preview, build_normalized_child_title
+    build_boundwith_preview, build_normalized_child_title,
+    _sort_child_records_for_774
 )
 from schemas.sudoc import (
     SudocSummary, 
@@ -349,7 +350,7 @@ async def remove_from_cart(
 @router.get("/{record_id}", response_model=List[MarcFieldOut])
 def fetch_sudoc_record(record_id: int):
     print(f"Looking for record ID: {record_id}")
-    fields = get_record_fields(record_id)
+    fields = get_record_fields(record_id, preserve_order=False)  # Return sorted fields
     if not fields:
         raise HTTPException(status_code=404, detail=f"Record ID {record_id} not found")
     return fields
@@ -472,9 +473,13 @@ async def create_boundwith(
     child_ids = list(request.related_record_ids)
     if not child_ids:
         raise HTTPException(status_code=400, detail="At least one constituent required")
+    # Collect child records for enhanced 008 field analysis
+    child_records = []
     for rid in child_ids:
-        if not get_marc_by_id(rid):
+        child_rec = get_marc_by_id(rid)
+        if not child_rec:
             raise HTTPException(status_code=404, detail=f"Record {rid} not found")
+        child_records.append(child_rec)
 
     h = request.host_record
     host_rec = create_government_series_host_record(
@@ -483,7 +488,8 @@ async def create_boundwith(
         publisher=h.publisher,
         series_number=None,
         year=h.year,
-        subjects=h.subjects
+        subjects=h.subjects,
+        child_records=child_records
     )
     if request.holdings_data:
         add_holdings_and_item_fields(host_rec, request.holdings_data)
@@ -498,15 +504,23 @@ async def create_boundwith(
         host_w = f"(LOCAL){host_id}"
     _strip_existing_link_fields(host_rec)
 
-    for ordinal, cid in enumerate(child_ids, 1):
+    # Collect child record data for sorting
+    child_data = []
+    for cid in child_ids:
         child_rec = get_marc_by_id(cid, include_edits=True)
-        if not child_rec:
-            continue
+        if child_rec:
+            child_data.append((cid, child_rec))
+    
+    # Sort child records by date then enumeration for proper 774 ordering
+    sorted_child_data = _sort_child_records_for_774(child_data)
+
+    # Add 774 fields to host and 773 fields to children in sorted order
+    for ordinal, (cid, child_rec) in enumerate(sorted_child_data, 1):
         _strip_existing_link_fields(child_rec)
         # Normalized title for 774
         child_title = build_normalized_child_title(child_rec)
         child_w = _preferred_control_number(child_rec, str(cid))
-        # 774 on host with sequential numbering
+        # 774 on host with sequential numbering based on sorted order
         host_rec.add_field(
             Field(
                 tag='774',
@@ -762,6 +776,7 @@ async def update_marc_field(
     
     # Get the field to be updated
     old_field = fields[field_index]
+    print(f"Updating field at index {field_index}: {old_field.tag} -> {field_update.get('tag', old_field.tag)}")
     
     try:
         # Create a new field based on the update
@@ -792,30 +807,72 @@ async def update_marc_field(
                 subfields=subfields
             )
         
-        # Replace the field in the record at the same position
-        # Use a more reliable method to replace the field in-place
-        fields_list = list(record.fields)
+        # Replace the field in the record more safely
+        # Remove the old field and add the new one at the same position
+        field_position = None
         
-        # Find the exact field object in the list
-        for i, field_obj in enumerate(fields_list):
+        # Find the position of the field to replace
+        for i, field_obj in enumerate(record.fields):
             if field_obj == old_field:
-                # Replace it directly at this position
-                fields_list[i] = new_field
+                field_position = i
                 break
         
-        # Clear all fields and add them back in the correct order
-        for field_to_remove in list(record.fields):
-            record.remove_field(field_to_remove)
-        
-        # Add all fields back in order
-        for field_obj in fields_list:
-            record.add_field(field_obj)
+        if field_position is not None:
+            # Remove the old field
+            record.remove_field(old_field)
+            
+            # Insert the new field at the same position
+            record.fields.insert(field_position, new_field)
+        else:
+            # Fallback: if we can't find the exact field, just remove old and add new
+            record.remove_field(old_field)
+            record.add_field(new_field)
         
         # Save the updated record
         crud.save_edited_record(db, record_id, record.as_marc(), current_user.id)
         
-        # Return updated fields
-        return get_record_fields(record_id)
+        # Return updated fields (sorted for proper MARC order)
+        updated_fields = get_record_fields(record_id, preserve_order=False)
+        print(f"Returning {len(updated_fields)} fields after update (sorted)")
+        return updated_fields
     except Exception as e:
         print(f"Error updating field: {e}")
         raise HTTPException(status_code=500, detail=f"Error updating field: {str(e)}")
+
+@router.delete("/{record_id}/field/{field_index}")
+async def delete_marc_field(
+    record_id: int,
+    field_index: int,
+    current_user = Depends(require_cataloger),
+    db: Session = Depends(get_db)
+):
+    """Delete a MARC field from a record"""
+    # Get the record
+    record = get_marc_by_id(record_id, include_edits=True)
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+    
+    # Make sure the field index is valid
+    fields = list(record.get_fields())
+    if field_index < 0 or field_index >= len(fields):
+        raise HTTPException(status_code=404, detail=f"Field index {field_index} out of range (0-{len(fields)-1})")
+    
+    # Get the field to be deleted
+    field_to_delete = fields[field_index]
+    print(f"Deleting field at index {field_index}: {field_to_delete.tag}")
+    
+    try:
+        # Remove the field from the record
+        record.remove_field(field_to_delete)
+        
+        # Save the updated record
+        crud.save_edited_record(db, record_id, record.as_marc(), current_user.id)
+        
+        # Return updated fields (sorted for proper MARC order)
+        updated_fields = get_record_fields(record_id, preserve_order=False)
+        print(f"Returning {len(updated_fields)} fields after deletion (sorted)")
+        return updated_fields
+        
+    except Exception as e:
+        print(f"Error deleting field: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting field: {str(e)}")
