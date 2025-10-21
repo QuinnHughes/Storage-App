@@ -23,6 +23,7 @@ from api.accession import router as accession_router
 from api.weed import router as weed_router
 from api.users import router as users_router
 from api.record_management import router as record_management_router
+from api.records import router as records_router
 from api.dashboard import router as dashboard_router
 from api.shelf_optimization import router as shelf_optimization_router
 from core.auth import (
@@ -136,6 +137,12 @@ app.include_router(
     prefix="/api/weed",
     tags=["Weeded Items"],
     dependencies=[Depends(require_cataloger)],
+)
+app.include_router(
+    records_router,
+    prefix="/api/records",
+    tags=["Records"],
+    dependencies=[Depends(require_viewer)],
 )
 app.include_router(
     record_management_router,

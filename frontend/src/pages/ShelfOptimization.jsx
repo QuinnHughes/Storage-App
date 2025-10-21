@@ -10,18 +10,68 @@ const ShelfOptimization = () => {
   const [weededAnalysis, setWeededAnalysis] = useState(null);
   const [optimalPlacement, setOptimalPlacement] = useState(null);
   const [filters, setFilters] = useState({
-    floor: '',
+    floor: '',  // Default to all floors
     range: '',
     sortBy: 'fill_percentage',
     sortOrder: 'asc',
+    densityFilter: '',  // empty, very_low, low, medium, high
     minConsecutiveSlots: 1,
     maxFillPercentage: 50,
-    minWeededCount: 2,
+    minWeededCount: 1,
     itemCount: 100,
     preferEmptyShelves: true
   });
+  const [pagination, setPagination] = useState({
+    limit: 250,
+    offset: 0
+  });
 
-  const fetchShelfAnalysis = async () => {
+  // Export to CSV functions
+  const exportToCSV = async (endpoint, filename) => {
+    try {
+      const token = localStorage.getItem("token");
+      const params = new URLSearchParams();
+      
+      if (filters.floor) params.append('floor', filters.floor);
+      if (filters.range) params.append('range_code', filters.range);
+      
+      if (endpoint === 'shelf-analysis') {
+        // Density filter is required for shelf-analysis export
+        if (!filters.densityFilter) {
+          alert('Please select a Density Filter before exporting.');
+          return;
+        }
+        params.append('sort_by', filters.sortBy);
+        params.append('sort_order', filters.sortOrder);
+        params.append('density_filter', filters.densityFilter);
+      } else if (endpoint === 'available-space') {
+        params.append('min_consecutive_slots', filters.minConsecutiveSlots);
+      } else if (endpoint === 'consolidation') {
+        params.append('max_fill_percentage', filters.maxFillPercentage);
+      }
+      
+      const response = await apiFetch(`/shelf-optimization/export/${endpoint}?${params}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }
+    } catch (error) {
+      console.error('Error exporting CSV:', error);
+      alert('Failed to export CSV. Please try again.');
+    }
+  };
+
+  const fetchShelfAnalysis = async (resetPagination = false) => {
     try {
       setLoading(true);
       const token = localStorage.getItem("token");
@@ -31,6 +81,15 @@ const ShelfOptimization = () => {
       if (filters.range) params.append('range_code', filters.range);
       params.append('sort_by', filters.sortBy);
       params.append('sort_order', filters.sortOrder);
+      if (filters.densityFilter) params.append('density_filter', filters.densityFilter);
+      
+      const currentPagination = resetPagination ? { limit: 250, offset: 0 } : pagination;
+      params.append('limit', currentPagination.limit);
+      params.append('offset', currentPagination.offset);
+      
+      if (resetPagination) {
+        setPagination({ limit: 250, offset: 0 });
+      }
       
       const response = await apiFetch(`/shelf-optimization/shelf-analysis?${params}`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -57,13 +116,24 @@ const ShelfOptimization = () => {
       if (filters.range) params.append('range_code', filters.range);
       params.append('min_consecutive_slots', filters.minConsecutiveSlots);
       
-      const response = await apiFetch(`/shelf-optimization/available-space?${params}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      // Fetch both available space and weeded analysis
+      const [availableResponse, weededResponse] = await Promise.all([
+        apiFetch(`/shelf-optimization/available-space?${params}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        apiFetch(`/shelf-optimization/weeded-space-analysis?${params}&min_weeded_count=${filters.minWeededCount}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      ]);
       
-      if (response.ok) {
-        const data = await response.json();
+      if (availableResponse.ok) {
+        const data = await availableResponse.json();
         setAvailableSpace(data);
+      }
+      
+      if (weededResponse.ok) {
+        const data = await weededResponse.json();
+        setWeededAnalysis(data);
       }
     } catch (error) {
       console.error('Error fetching available space:', error);
@@ -82,16 +152,31 @@ const ShelfOptimization = () => {
       if (filters.range) params.append('range_code', filters.range);
       params.append('max_fill_percentage', filters.maxFillPercentage);
       
-      const response = await apiFetch(`/shelf-optimization/consolidation-opportunities?${params}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const placementParams = new URLSearchParams(params);
+      placementParams.append('item_count', filters.itemCount);
+      placementParams.append('prefer_empty_shelves', filters.preferEmptyShelves);
       
-      if (response.ok) {
-        const data = await response.json();
+      // Fetch both consolidation opportunities and optimal placement
+      const [consolidationResponse, placementResponse] = await Promise.all([
+        apiFetch(`/shelf-optimization/consolidation-opportunities?${params}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        apiFetch(`/shelf-optimization/optimal-placement?${placementParams}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      ]);
+      
+      if (consolidationResponse.ok) {
+        const data = await consolidationResponse.json();
         setConsolidationOps(data);
       }
+      
+      if (placementResponse.ok) {
+        const data = await placementResponse.json();
+        setOptimalPlacement(data);
+      }
     } catch (error) {
-      console.error('Error fetching consolidation opportunities:', error);
+      console.error('Error fetching consolidation data:', error);
     } finally {
       setLoading(false);
     }
@@ -148,19 +233,25 @@ const ShelfOptimization = () => {
     }
   };
 
+  // Removed auto-fetch on tab change - user must click "Apply Filters" button
+  // This prevents 5-minute loading times when opening the page
+  
+  // useEffect(() => {
+  //   if (activeTab === 'shelf-analysis') {
+  //     fetchShelfAnalysis();
+  //   } else if (activeTab === 'available-space') {
+  //     fetchAvailableSpace();
+  //   } else if (activeTab === 'consolidation') {
+  //     fetchConsolidationOpportunities();
+  //   }
+  // }, [activeTab]);
+
+  // Refetch when pagination changes (only for shelf-analysis)
   useEffect(() => {
-    if (activeTab === 'shelf-analysis') {
+    if (activeTab === 'shelf-analysis' && shelfAnalysis) {
       fetchShelfAnalysis();
-    } else if (activeTab === 'available-space') {
-      fetchAvailableSpace();
-    } else if (activeTab === 'consolidation') {
-      fetchConsolidationOpportunities();
-    } else if (activeTab === 'weeded') {
-      fetchWeededAnalysis();
-    } else if (activeTab === 'placement') {
-      fetchOptimalPlacement();
     }
-  }, [activeTab]);
+  }, [pagination.offset]);
 
   const renderFilters = () => (
     <div className="bg-white rounded-lg shadow p-4 mb-6">
@@ -190,6 +281,21 @@ const ShelfOptimization = () => {
         {activeTab === 'shelf-analysis' && (
           <>
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Density Filter</label>
+              <select
+                value={filters.densityFilter}
+                onChange={(e) => setFilters({ ...filters, densityFilter: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              >
+                <option value="">All Shelves</option>
+                <option value="empty">Empty (0%)</option>
+                <option value="very_low">Very Low (1-25%)</option>
+                <option value="low">Low (26-50%)</option>
+                <option value="medium">Medium (51-75%)</option>
+                <option value="high">High (76-100%)</option>
+              </select>
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Sort By</label>
               <select
                 value={filters.sortBy}
@@ -216,49 +322,45 @@ const ShelfOptimization = () => {
         )}
         
         {activeTab === 'available-space' && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Min Consecutive Slots</label>
-            <input
-              type="number"
-              value={filters.minConsecutiveSlots}
-              onChange={(e) => setFilters({ ...filters, minConsecutiveSlots: parseInt(e.target.value) })}
-              min="1"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            />
-          </div>
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Min Consecutive Slots</label>
+              <input
+                type="number"
+                value={filters.minConsecutiveSlots}
+                onChange={(e) => setFilters({ ...filters, minConsecutiveSlots: parseInt(e.target.value) })}
+                min="1"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Min Weeded Items</label>
+              <input
+                type="number"
+                value={filters.minWeededCount}
+                onChange={(e) => setFilters({ ...filters, minWeededCount: parseInt(e.target.value) })}
+                min="1"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              />
+            </div>
+          </>
         )}
         
         {activeTab === 'consolidation' && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Max Fill % for Consolidation</label>
-            <input
-              type="number"
-              value={filters.maxFillPercentage}
-              onChange={(e) => setFilters({ ...filters, maxFillPercentage: parseInt(e.target.value) })}
-              min="1"
-              max="100"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            />
-          </div>
-        )}
-        
-        {activeTab === 'weeded' && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Min Weeded Items</label>
-            <input
-              type="number"
-              value={filters.minWeededCount}
-              onChange={(e) => setFilters({ ...filters, minWeededCount: parseInt(e.target.value) })}
-              min="1"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            />
-          </div>
-        )}
-        
-        {activeTab === 'placement' && (
           <>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Number of Items</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Max Fill % for Consolidation</label>
+              <input
+                type="number"
+                value={filters.maxFillPercentage}
+                onChange={(e) => setFilters({ ...filters, maxFillPercentage: parseInt(e.target.value) })}
+                min="1"
+                max="100"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Items to Place (for Optimal Placement)</label>
               <input
                 type="number"
                 value={filters.itemCount}
@@ -282,56 +384,221 @@ const ShelfOptimization = () => {
         )}
       </div>
       
-      <button
-        onClick={() => {
-          if (activeTab === 'available-space') fetchAvailableSpace();
-          else if (activeTab === 'consolidation') fetchConsolidationOpportunities();
-          else if (activeTab === 'weeded') fetchWeededAnalysis();
-          else if (activeTab === 'placement') fetchOptimalPlacement();
-        }}
-        className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-      >
-        Apply Filters
-      </button>
+      <div className="flex gap-2 mt-4">
+        <button
+          onClick={() => {
+            if (activeTab === 'shelf-analysis') {
+              if (!filters.densityFilter) {
+                alert('Please select a Density Filter to view shelf analysis. This prevents loading thousands of shelves at once.');
+                return;
+              }
+              fetchShelfAnalysis(true); // Reset pagination
+            } else if (activeTab === 'available-space') {
+              fetchAvailableSpace();
+            } else if (activeTab === 'consolidation') {
+              fetchConsolidationOpportunities();
+            }
+          }}
+          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+        >
+          Apply Filters
+        </button>
+        <button
+          onClick={() => {
+            if (activeTab === 'shelf-analysis') {
+              exportToCSV('shelf-analysis', 'shelf_analysis.csv');
+            } else if (activeTab === 'available-space') {
+              exportToCSV('available-space', 'available_and_weeded_space.csv');
+            } else if (activeTab === 'consolidation') {
+              exportToCSV('consolidation', 'consolidation_opportunities.csv');
+            }
+          }}
+          className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center gap-2"
+        >
+          <span>📥</span> Export to CSV
+        </button>
+      </div>
     </div>
   );
 
   const renderShelfAnalysis = () => {
-    if (!shelfAnalysis) return null;
+    if (!shelfAnalysis) {
+      return (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
+          <div className="text-4xl mb-4">📊</div>
+          <h3 className="text-lg font-semibold text-blue-900 mb-2">Ready to Analyze Shelves</h3>
+          <p className="text-blue-700 mb-4">
+            Select a <strong>Density Filter</strong> above to view shelves by fill percentage.
+          </p>
+          <p className="text-sm text-blue-600">
+            💡 Tip: Use "Empty (0%)" to find available shelves, or "Very Low" for consolidation opportunities.
+          </p>
+        </div>
+      );
+    }
 
-    const { summary, shelves } = shelfAnalysis;
+    const { summary, shelves, pagination: paginationInfo } = shelfAnalysis;
 
+    // Check if we're using density filter (single category response)
+    const isDensityFiltered = Array.isArray(shelves);
+    
     const categoryConfig = {
-      very_low: { label: 'Very Low (0-25%)', color: 'bg-green-100 border-green-400 text-green-800' },
+      empty: { label: 'Empty (0%)', color: 'bg-gray-100 border-gray-400 text-gray-800' },
+      very_low: { label: 'Very Low (1-25%)', color: 'bg-green-100 border-green-400 text-green-800' },
       low: { label: 'Low (26-50%)', color: 'bg-yellow-100 border-yellow-400 text-yellow-800' },
       medium: { label: 'Medium (51-75%)', color: 'bg-orange-100 border-orange-400 text-orange-800' },
       high: { label: 'High (76-100%)', color: 'bg-red-100 border-red-400 text-red-800' }
     };
 
+    const handlePrevPage = () => {
+      if (pagination.offset > 0) {
+        setPagination({ ...pagination, offset: Math.max(0, pagination.offset - pagination.limit) });
+      }
+    };
+
+    const handleNextPage = () => {
+      setPagination({ ...pagination, offset: pagination.offset + pagination.limit });
+    };
+
     return (
       <div className="space-y-6">
         {/* Summary Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div className="bg-white p-4 rounded-lg shadow border border-gray-200">
             <div className="text-2xl font-bold text-blue-600">{summary.total_shelves}</div>
             <div className="text-sm text-gray-600">Total Shelves</div>
           </div>
+          <div className="bg-gray-50 p-4 rounded-lg shadow border border-gray-200">
+            <div className="text-2xl font-bold text-gray-600">{summary.by_density.empty || 0}</div>
+            <div className="text-sm text-gray-600">Empty (0%)</div>
+          </div>
           <div className="bg-green-50 p-4 rounded-lg shadow border border-green-200">
             <div className="text-2xl font-bold text-green-600">{summary.by_density.very_low}</div>
-            <div className="text-sm text-gray-600">Very Low Fill (0-25%)</div>
+            <div className="text-sm text-gray-600">Very Low (1-25%)</div>
           </div>
           <div className="bg-yellow-50 p-4 rounded-lg shadow border border-yellow-200">
             <div className="text-2xl font-bold text-yellow-600">{summary.by_density.low}</div>
-            <div className="text-sm text-gray-600">Low Fill (26-50%)</div>
+            <div className="text-sm text-gray-600">Low (26-50%)</div>
           </div>
           <div className="bg-orange-50 p-4 rounded-lg shadow border border-orange-200">
             <div className="text-2xl font-bold text-orange-600">{summary.by_density.medium}</div>
-            <div className="text-sm text-gray-600">Medium Fill (51-75%)</div>
+            <div className="text-sm text-gray-600">Medium (51-75%)</div>
           </div>
         </div>
 
-        {/* Categorized Shelves */}
-        {Object.entries(categoryConfig).map(([category, config]) => {
+        {/* Filtered Results with Pagination */}
+        {isDensityFiltered && (
+          <>
+            <div className="bg-white rounded-lg shadow">
+              <div className="px-4 py-3 bg-blue-50 rounded-t-lg border-b border-blue-200">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-lg text-blue-900">
+                    {filters.densityFilter ? categoryConfig[filters.densityFilter]?.label : 'All Shelves'} - 
+                    Showing {paginationInfo.returned} of {paginationInfo.total_in_category}
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handlePrevPage}
+                      disabled={pagination.offset === 0}
+                      className="px-3 py-1 bg-white border border-gray-300 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                    >
+                      Previous
+                    </button>
+                    <span className="text-sm text-gray-600">
+                      {pagination.offset + 1} - {Math.min(pagination.offset + pagination.limit, paginationInfo.total_in_category)} of {paginationInfo.total_in_category}
+                    </span>
+                    <button
+                      onClick={handleNextPage}
+                      disabled={pagination.offset + pagination.limit >= paginationInfo.total_in_category}
+                      className="px-3 py-1 bg-white border border-gray-300 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="p-4">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Shelf</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Items</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material Size</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Space Used</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Space Available</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weeded</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fill %</th>
+                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {shelves.map((shelf, idx) => (
+                        <tr key={idx} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                            {shelf.call_number}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700">{shelf.current_items}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <div className="flex items-center space-x-1">
+                              <span className="text-lg">{shelf.material_size === 'large' ? '📚' : shelf.material_size === 'average' ? '📖' : '📄'}</span>
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                shelf.material_size === 'large' ? 'bg-purple-100 text-purple-800' :
+                                shelf.material_size === 'average' ? 'bg-blue-100 text-blue-800' :
+                                'bg-gray-100 text-gray-800'
+                              }`}>
+                                {shelf.material_size}
+                              </span>
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">~{shelf.estimated_item_width}" each</div>
+                            <div className="text-xs text-gray-600 mt-1">
+                              Can fit: {shelf.can_fit_materials?.join(', ')}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            <span className="font-semibold text-gray-900">{shelf.used_space_inches}"</span>
+                            <div className="text-xs text-gray-500">of 35"</div>
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            <span className="font-semibold text-green-700">{shelf.available_space_inches}"</span>
+                            <div className="text-xs text-gray-500">empty</div>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700">{shelf.weeded_count}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <div className="flex items-center">
+                              <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
+                                <div
+                                  className="bg-blue-600 h-2 rounded-full"
+                                  style={{ width: `${shelf.fill_percentage}%` }}
+                                ></div>
+                              </div>
+                              <span className="font-medium">{shelf.fill_percentage}%</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <button
+                              onClick={() => window.location.href = `/shelf-viewer?shelf=${encodeURIComponent(shelf.call_number)}`}
+                              className="text-blue-600 hover:text-blue-800 font-medium text-sm flex items-center gap-1 mx-auto"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                              </svg>
+                              View Records
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Categorized Shelves (when no density filter) */}
+        {!isDensityFiltered && Object.entries(categoryConfig).map(([category, config]) => {
           const categoryData = shelves[category] || [];
           if (categoryData.length === 0) return null;
 
@@ -350,10 +617,11 @@ const ShelfOptimization = () => {
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Shelf</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Items</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material Size</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Available</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Capacity</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Space Used</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Space Available</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weeded</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fill %</th>
+                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -379,8 +647,14 @@ const ShelfOptimization = () => {
                               Can fit: {shelf.can_fit_materials?.join(', ')}
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-700">{shelf.available_slots}</td>
-                          <td className="px-4 py-3 text-sm text-gray-700">{shelf.capacity}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <span className="font-semibold text-gray-900">{shelf.used_space_inches}"</span>
+                            <div className="text-xs text-gray-500">of 35"</div>
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            <span className="font-semibold text-green-700">{shelf.available_space_inches}"</span>
+                            <div className="text-xs text-gray-500">empty</div>
+                          </td>
                           <td className="px-4 py-3 text-sm text-gray-700">{shelf.weeded_count}</td>
                           <td className="px-4 py-3 text-sm">
                             <div className="flex items-center">
@@ -392,6 +666,22 @@ const ShelfOptimization = () => {
                               </div>
                               <span className="text-gray-700">{shelf.fill_percentage}%</span>
                             </div>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-center">
+                            <a
+                              href={`/shelf-viewer?shelf=${encodeURIComponent(shelf.call_number)}`}
+                              className="text-purple-600 hover:text-purple-800 font-medium inline-flex items-center gap-1"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                window.location.href = `/shelf-viewer?shelf=${encodeURIComponent(shelf.call_number)}`;
+                              }}
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                              </svg>
+                              View
+                            </a>
                           </td>
                         </tr>
                       ))}
@@ -703,6 +993,39 @@ const ShelfOptimization = () => {
     </div>
   );
 
+  // Combined render functions for the 3-tab layout
+  const renderAvailableAndWeededSpace = () => (
+    <div className="space-y-8">
+      {/* Available Space Section */}
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">📦 Available Space</h2>
+        {renderAvailableSpace()}
+      </div>
+      
+      {/* Weeded Analysis Section */}
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">🗑️ Weeded Space Analysis</h2>
+        {renderWeededAnalysis()}
+      </div>
+    </div>
+  );
+
+  const renderConsolidationAndPlacement = () => (
+    <div className="space-y-8">
+      {/* Consolidation Opportunities Section */}
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">🔄 Consolidation Opportunities</h2>
+        {renderConsolidation()}
+      </div>
+      
+      {/* Optimal Placement Section */}
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">🎯 Optimal Placement Recommendations</h2>
+        {renderOptimalPlacement()}
+      </div>
+    </div>
+  );
+
   return (
     <div className="p-6">
       <div className="mb-6">
@@ -717,20 +1040,19 @@ const ShelfOptimization = () => {
         <div className="border-b border-gray-200">
           <nav className="flex -mb-px">
             {[
-              { id: 'shelf-analysis', label: 'Shelf Analysis' },
-              { id: 'available-space', label: 'Available Space' },
-              { id: 'consolidation', label: 'Consolidation' },
-              { id: 'weeded', label: 'Weeded Analysis' },
-              { id: 'placement', label: 'Optimal Placement' }
+              { id: 'shelf-analysis', label: '📊 Shelf Analysis', description: 'View shelf utilization by fill percentage' },
+              { id: 'available-space', label: '📦 Available & Weeded Space', description: 'Find empty slots and recently weeded shelves' },
+              { id: 'consolidation', label: '🔄 Consolidation & Placement', description: 'Consolidate shelves and find optimal placement' }
             ].map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors flex-1 ${
                   activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    ? 'border-blue-500 text-blue-600 bg-blue-50'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50'
                 }`}
+                title={tab.description}
               >
                 {tab.label}
               </button>
@@ -751,10 +1073,8 @@ const ShelfOptimization = () => {
       ) : (
         <div>
           {activeTab === 'shelf-analysis' && renderShelfAnalysis()}
-          {activeTab === 'available-space' && renderAvailableSpace()}
-          {activeTab === 'consolidation' && renderConsolidation()}
-          {activeTab === 'weeded' && renderWeededAnalysis()}
-          {activeTab === 'placement' && renderOptimalPlacement()}
+          {activeTab === 'available-space' && renderAvailableAndWeededSpace()}
+          {activeTab === 'consolidation' && renderConsolidationAndPlacement()}
         </div>
       )}
     </div>

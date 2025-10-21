@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import apiFetch from '../api/client';
+import RecordViewerModal from '../components/RecordViewerModal';
 
 // -----------------------------------------------------------------------------
 // Helper to export any array of objects to CSV and trigger a download
@@ -50,7 +51,35 @@ export default function AnalyticsSearch() {
   const [locations, setLocations] = useState([]);
   const [statuses, setStatuses] = useState([]);
 
+  // Record viewer modal state
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [selectedRecordId, setSelectedRecordId] = useState(null);
+  const [userRole, setUserRole] = useState('viewer');
+
   useEffect(() => {
+    // Get user role from API
+    async function fetchUserRole() {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setUserRole('viewer');
+          return;
+        }
+        const resp = await apiFetch('/auth/me', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (resp.ok) {
+          const userData = await resp.json();
+          setUserRole(userData.role || 'viewer');
+        }
+      } catch (err) {
+        console.error('Failed to fetch user role:', err);
+        setUserRole('viewer');
+      }
+    }
+
+    fetchUserRole();
+
     async function fetchFilters() {
       try {
         const token = localStorage.getItem("token");
@@ -104,6 +133,21 @@ export default function AnalyticsSearch() {
       setError("Network error. Try again.");
       setSearched(true);
     }
+  };
+
+  const handleViewRecord = (recordId) => {
+    setSelectedRecordId(recordId);
+    setViewerOpen(true);
+  };
+
+  const handleDelete = (deletedId) => {
+    // Remove deleted record from results
+    setResults(results.filter(r => r.id !== deletedId));
+  };
+
+  const handleEdit = (updatedRecord) => {
+    // Update the record in results
+    setResults(results.map(r => r.id === updatedRecord.id ? { ...r, ...updatedRecord } : r));
   };
 
   return (
@@ -215,9 +259,28 @@ export default function AnalyticsSearch() {
             {results.map((a) => (
               <div
                 key={a.id}
-                className="p-4 bg-white rounded-lg shadow hover:shadow-md"
+                className="p-4 bg-white rounded-lg shadow hover:shadow-md relative"
               >
-                <h4 className="text-lg font-semibold">{a.title}</h4>
+                {/* Accession Status Badge */}
+                <div className="absolute top-2 right-2">
+                  {a.has_item_link ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800" title="Item has been accessioned">
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                      Accessioned
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600" title="Not yet accessioned">
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                      </svg>
+                      Pending
+                    </span>
+                  )}
+                </div>
+                
+                <h4 className="text-lg font-semibold pr-24">{a.title}</h4>
                 <p className="text-sm text-gray-500">
                   Barcode: {a.barcode}
                 </p>
@@ -225,16 +288,41 @@ export default function AnalyticsSearch() {
                   Alt Call #: {a.alternative_call_number}
                 </p>
                 <p className="text-sm">Call #: {a.call_number}</p>
-                <p className="text-sm">Status: {a.status}</p>
+                <p className="text-sm">
+                  Status: <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                    a.has_item_link ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                  }`}>{a.status}</span>
+                </p>
                 <p className="text-sm">Policy: {a.item_policy}</p>
                 <p className="text-sm">
                   Location: {a.location_code}
                 </p>
+                <button
+                  onClick={() => handleViewRecord(a.id)}
+                  className="mt-3 w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                  View Record
+                </button>
               </div>
             ))}
           </div>
         </>
       )}
+
+      {/* Record Viewer Modal */}
+      <RecordViewerModal
+        isOpen={viewerOpen}
+        onClose={() => setViewerOpen(false)}
+        recordType="analytics"
+        recordId={selectedRecordId}
+        userRole={userRole}
+        onDelete={handleDelete}
+        onEdit={handleEdit}
+      />
     </div>
   );
 }

@@ -7,6 +7,9 @@ export default function AnalyticsErrors() {
   const [errorMsg, setErrorMsg] = useState(null);
   const [statusFilter, setStatusFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState("All");
+  const [barcodeSearch, setBarcodeSearch] = useState("");
+  const [altCallSearch, setAltCallSearch] = useState("");
+  const [callNumberSearch, setCallNumberSearch] = useState("");
   const [selectedError, setSelectedError] = useState(null);
   const [locationItems, setLocationItems] = useState([]);
   const [loadingLocationItems, setLoadingLocationItems] = useState(false);
@@ -45,8 +48,29 @@ export default function AnalyticsErrors() {
     if (typeFilter !== "All") {
       result = result.filter((err) => err.error_reason === typeFilter);
     }
+    if (barcodeSearch) {
+      result = result.filter((err) => 
+        err.barcode && err.barcode.toLowerCase().includes(barcodeSearch.toLowerCase())
+      );
+    }
+    if (altCallSearch) {
+      result = result.filter((err) => 
+        err.alternative_call_number && err.alternative_call_number.toLowerCase().includes(altCallSearch.toLowerCase())
+      );
+    }
+    if (callNumberSearch) {
+      result = result.filter((err) => 
+        err.analytics_call_number && err.analytics_call_number.toLowerCase().includes(callNumberSearch.toLowerCase())
+      );
+    }
+    // Sort by alternative_call_number
+    result.sort((a, b) => {
+      const aCall = a.alternative_call_number || "";
+      const bCall = b.alternative_call_number || "";
+      return aCall.localeCompare(bCall);
+    });
     return result;
-  }, [errors, statusFilter, typeFilter]);
+  }, [errors, statusFilter, typeFilter, barcodeSearch, altCallSearch, callNumberSearch]);
 
   const fetchLocationItems = async (error) => {
     setLoadingLocationItems(true);
@@ -131,6 +155,42 @@ export default function AnalyticsErrors() {
     );
   }
 
+  const handleDetectErrors = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem("token");
+      const response = await apiFetch("/catalog/analytics-errors/detect-missing-items", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        alert(`Error detection complete!\n\n` +
+              `Errors created: ${result.errors_created}\n` +
+              `Skipped (outside range): ${result.skipped_outside_range}\n` +
+              `Skipped (has item): ${result.skipped_has_item}\n` +
+              `Range: ${result.min_shelf} to ${result.max_shelf}`);
+        
+        // Reload errors
+        const errorsResponse = await apiFetch("/catalog/analytics-errors/", {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (errorsResponse.ok) {
+          const data = await errorsResponse.json();
+          setErrors(data);
+        }
+      } else {
+        alert("Failed to detect errors");
+      }
+    } catch (err) {
+      console.error("Error detection failed:", err);
+      alert("Error detection failed: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
@@ -140,8 +200,20 @@ export default function AnalyticsErrors() {
             Analytics records that don't match known items in inventory
           </p>
         </div>
-        <div className="text-sm text-gray-500">
-          {filteredErrors.length} error{filteredErrors.length !== 1 ? 's' : ''}
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handleDetectErrors}
+            disabled={loading}
+            className="bg-purple-600 text-white rounded-md px-4 py-2 hover:bg-purple-700 transition-colors duration-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            Detect Errors
+          </button>
+          <div className="text-sm text-gray-500">
+            {filteredErrors.length} error{filteredErrors.length !== 1 ? 's' : ''}
+          </div>
         </div>
       </div>
 
@@ -172,6 +244,39 @@ export default function AnalyticsErrors() {
                 <option key={type}>{type}</option>
               ))}
             </select>
+          </div>
+
+          <div className="flex flex-col">
+            <label className="text-sm font-medium text-gray-700 mb-1">Barcode</label>
+            <input
+              type="text"
+              value={barcodeSearch}
+              onChange={(e) => setBarcodeSearch(e.target.value)}
+              placeholder="Search barcode..."
+              className="border border-gray-300 rounded-md px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-48"
+            />
+          </div>
+
+          <div className="flex flex-col">
+            <label className="text-sm font-medium text-gray-700 mb-1">Alt Call Number</label>
+            <input
+              type="text"
+              value={altCallSearch}
+              onChange={(e) => setAltCallSearch(e.target.value)}
+              placeholder="Search alt call..."
+              className="border border-gray-300 rounded-md px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-48"
+            />
+          </div>
+
+          <div className="flex flex-col">
+            <label className="text-sm font-medium text-gray-700 mb-1">Analytics Call #</label>
+            <input
+              type="text"
+              value={callNumberSearch}
+              onChange={(e) => setCallNumberSearch(e.target.value)}
+              placeholder="Search call number..."
+              className="border border-gray-300 rounded-md px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-48"
+            />
           </div>
 
           <div className="ml-auto">

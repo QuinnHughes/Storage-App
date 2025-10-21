@@ -17,6 +17,7 @@ import Documentation from "./pages/Documentation";
 import SudocEditor from "./pages/SudocEditor";
 import AccessionSlots from "./pages/AccessionSlots"
 import ShelfOptimization from "./pages/ShelfOptimization"
+import ShelfViewer from "./pages/ShelfViewer"
 import UserManagement from "./pages/UserManagement"
 import UserLogs from "./pages/UserLogs";
 
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="empty-slots" element={<EmptySlots />} />
           <Route path="accession-slots" element={<AccessionSlots />} />
           <Route path="shelf-optimization" element={<ShelfOptimization />} />
+          <Route path="shelf-viewer" element={<ShelfViewer />} />
           <Route path="item-search" element={<ItemSearch />} />
           <Route path="analytics-search" element={<AnalyticsSearch />} />
           <Route path="analytics-errors" element={<AnalyticsErrors />} />
