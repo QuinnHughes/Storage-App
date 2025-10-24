@@ -1,172 +1,87 @@
-//Good (this is from a serial set but for the government documents most boundwiths are also serial sets):
-09587cas a2201201 4500
-001
-991009908249703361
-005
-20250308124809.0
-008
-870401c19629999enk xzm b 0 a0eng
-022
-0_ |a 0065-2504
-030
-__ |a AELRAY
-035
-__ |a ocm01220531
-035
-__ |a (OCoLC)01220531
-040
-__ |b eng |c OCanM |d HUL |d NSDP |d N |d MiU |d CoFS
-042
-__ |a nsdp
-090
-__ |a QH540 |b .A23
-210
-1_ |a Adv. ecol. res.
-229
-00 |a Advances in ecological research.
-245
-00 |a Advances in ecological research.
-260
-__ |a London ; |a New York : |b Academic Press.
-300
-__ |a volumes : |b illustrations, diagrams, tables. ; |c 24 cm
-336
-__ |a text |b txt |2 rdacontent
-337
-__ |a unmediated |b n |2 rdamedia
-338
-__ |a volume |b nc |2 rdacarrier
-362
-0_ |a v. 1- 1962-
-599
-__ |r aac 10/06 (analytic)
-500
-__ |a Editor: 1962- J. B. Cragg.
-504
-__ |a Includes bibliographical references.
-583
-1_ |a committed to retain |c 20170915 |d 20430915 |5 CoFS |f Alliance Shared Trust |u http://www.coalliance.org/shared-print-archiving-policies
-650
-_0 |a Ecology. |0 (DLC)sh 85040752
-650
-_7 |a Ecology. |2 fast |0 (OCoLC)fst00901476
-700
-1_ |a Cragg, J. B.
-774
-0_ |t Large-scale ecology : model systems to global perspectives |w 991031502139903361 |g no: 55
-774
-0_ |t Networks of invasion a synthesis of concepts |w 991031506038303361 |g no: 56
-774
-0_ |t Networks of invasion empirical evidence and case studies |w 991031504938903361 |g no: 57
-774
-0_ |t Next generation biomonitoring. |n Part 1 / |c edited by David Bohan, Alex J. Dumbrell, Guy Woodward, Michelle Jackson. |w 991031584737703361 |g no:58
-774
-0_ |t Next generation biomonitoring. |n Part 2 / |c edited by David A. Bohan, Alex J. Dumbrell, Guy Woodward, Michelle Jackson. |w 991031630139403361 |g no:59
-774
-0_ |t Resilience in complex socio-ecological systems / |c edited by David A. Bohan, Alex J. Dumbrell. |w 91031728638303361 |g no: 60
-774
-0_ |t Tropical ecosystems in the 21st century / |c edited by Alex J. Dumbrell, Edgar C. Turner, Tom M. Fayle. |w 991031849334303361 |g v:62
-774
-0_ |t Future of agricultural landscapes |n Part 1 / |c edited by David A. Bohan, Adam J. Vanbergen. |w 991032016719803361 |g v:63
-774
-0_ |t Future of agricultural landscapes |n Part 2 / |c edited by David A. Bohan, Adam J. Vanbergen. |w 99103200822000361 |g v:64
-774
-0_ |t Future of agricultural landscapes, |p Part III |c edited by David A. Bohan, Alex J. Dumbrell, Adam J. Vanbergen |w 991032135315003361 |g v.65
-774
-0_ |t Pluralism in ecosystem governance |c edited by Jennifer M. Holzer, Julia Baird, Gordon M. Hickey |w 991032437818503361 |g v.66
-774
-0_ |t Functional microbiomes / |c edited by David A. Bohan, Alex Dumbrell. |w 991033010119403361 |g v.67
-774
-0_ |t Advances in Ecological Research : Roadmaps |n Part A / |c edited by David Bohan and Alex Dumbrell. |w 991033161318403361 |g v.68
-774
-0_ |t Advances in Ecological Research : Roadmaps |n Part B / |c edited by David Bohan and Alex Dumbrell. |w 991033480576503361 |g v.69
-774
-0_ |t Stream research in Glacier Bay, Alaska from 1977-2024. |n Part 1 / |c edited by Alex J. Dumbrell, Alexander M. Milner. |w 991033480576403361 |g v.70
-907
-__ |a .b12399000 |b 04-21-16 |c 03-26-96
-944
-__ |a MARCIVE Authority Processing |b 202308
-945
-__ |a QH540 |b .A23 |c v.1 |g 1 |h 0 |i U184005392630 |j 0 |l ms |o - |p $0.00 |r - |s - |t 0 |u 0 |v 0 |w 0 |x 0 |y .i14081416 |z 03-26-96
-945
-__ |a QH540 |b .A23 |c v.2 |g 1 |h 0 |i U184005392614 |j 0 |l ms |o - |p $0.00 |r - |s - |t 0 |u 1 |v 0 |w 0 |x 0 |y .i14081404 |z 03-26-96
-945
-__ |a QH540 |b .A23 |c v.3 |g 1 |h 0 |i U184004571590 |j 0 |l ms |o - |p $0.00 |r - |s - |t 0 |u 2 |v 0 |w 0 |x 0 |y .i14081246 |z 03-26-96
-945
-__ |a QH540 |b .A23 |c v.4 |g 1 |h 0 |i U184012813841 |j 0 |l ms |o - |p $0.00 |r - |s - |t 0 |u 0 |v 0 |w 0 |x 0 |y .i23582157 |z 05-06-96
-945
-__ |a QH540 |b .A23 |c v.5 |g 1 |h 0 |i U184002707226 |j 0 |l ms |o - |p $0.00 |r - |s - |t 0 |u 2 |v 0 |w 0 |x 0 |y .i14081349 |z 03-26-96
-945
-__ |a QH540 |b .A23 |c v.6 |g 1 |h 0 |i U184003203047 |j 0 |l ms |o - |p $0.00 |r - |s - |t 0 |u 2 |v 0 |w 0 |x 0 |y .i14081313 |z 03-26-96
-945
-__ |a QH540 |b .A23 |c v.7 |g 1 |h 0 |i U184011436963 |j 0 |l ms |o - |p $0.00 |r - |s - |t 0 |u 5 |v 0 |w 0 |x 0 |y .i14081325 |z 03-26-96
-945
-__ |a QH540 |b .A23 |c v.8 |g 1 |h 0 |i U184001741455 |j 0 |l ms |o - |p $0.00 |r - |s - |t 0 |u 2 |v 0 |w 0 |x 0 |y .i14081258 |z 03-26-96
-945
-__ |a QH540 |b .A23 |c v.9 |g 1 |h 0 |i U184001120748 |j 0 |l ms |o - |p $0.00 |r - |s - |t 0 |u 3 |v 1 |w 0 |x 0 |y .i1408126x |z 03-26-96
-945
-__ |a QH540 |b .A23 |c v.10 |g 1 |h 0 |i u184018625343 |j 0 |l ms |o n |p $0.00 |q - |r - |s - |t 0 |u 3 |v 1 |w 0 |x 1 |y .i29352265 |z 09-14-00
-945
-__ |a QH540 |b .A23 |c v.11 |g 1 |h 0 |i u184021689762 |j 0 |l ms |o n |p $0.00 |q - |r - |s - |t 0 |u 0 |v 0 |w 0 |x 0 |y .i3321511x |z 12-31-03
-945
-__ |a QH540 |b .A23 |c v.12 |g 1 |h 0 |i u184020798495 |j 0 |l ms |o n |p $0.00 |q - |r - |s - |t 0 |u 1 |v 0 |w 0 |x 0 |y .i33215169 |z 12-31-03
-945
-__ |a QH540 |b .A23 |c v.13 |g 1 |h 61 |i U184001820039 |j 0 |l ms |o - |p $0.00 |r - |s - |t 0 |u 4 |v 3 |w 0 |x 0 |y .i14081301 |z 03-26-96
-945
-__ |a QH540 |b .A23 |c v.14 |g 1 |h 0 |i U184003227481 |j 0 |l ms |o - |p $0.00 |r - |s - |t 0 |u 4 |v 0 |w 1 |x 0 |y .i14081337 |z 03-26-96
+Links:
+
+Marc Information Library of Congress:
+https://www.loc.gov/marc/bibliographic/
+https://www.loc.gov/marc/bibliographic/bd01x09x.html
+
+Alma Related Information:
+https://knowledge.exlibrisgroup.com/Primo/Product_Documentation/Primo/Technical_Guide/160Mapping_to_the_Normalized_Record/030Alma_MARC_21
+https://knowledge.exlibrisgroup.com/Alma/Product_Documentation/010Alma_Online_Help_(English)/Metadata_Management/040Working_with_Bibliographic_Records
+https://flvc.libguides.com/c.php?g=1156894&p=9587359
 
 
+Good Marc 21 Records: 
+LDR	01909cas a2200397 a 4500
+001	991018520139703361
+005	20180516183634.0
+008	000621cuuuu9999dcuar f0 0eng d
+035	__ |a (OCoLC)ocm44450394
+035	__ |a (OCoLC)ocolc44450394
+040	__ |a OSO |b eng |c OSO |d ORU |d COF
+042	__ |a lcd
+043	__ |a n-usp--
+086	0_ |a C 55.6/2:SA 3/
+229	00 |a Federal regulations, West Coast salmon fisheries.
+245	00 |a Federal regulations, West Coast salmon fisheries.
+246	30 |a West Coast salmon fisheries.
+260	__ |a [Washington, D.C.] : |b U.S. Dept. of Commerce, National Oceanic and Atmospheric Administration.
+300	__ |a volumes ; |c 22 cm
+310	__ |a Annual.
+336	__ |a text |b txt |2 rdacontent
+337	__ |a unmediated |b n |2 rdamedia
+338	__ |a volume |b nc |2 rdacarrier
+599	__ |a tmp04.
+500	__ |a "Applying in the exclusive economic zone (3-200 nautical miles) off the coasts of Washington, Oregon, and California."
+500	__ |a Description based on: 2003; title from cover.
+580	__ |a Includes portions of: Code of federal regulations. 50, Wildlife and fisheries.
+650	_0 |a Pacific salmon fisheries |x Law and legislation |v Periodicals. |0 (DLC)sh 85096487 |0 (DLC)sh 99004848 |0 (DLC)sh 99001647
+650	_7 |a Pacific salmon fisheries |x Law and legislation. |2 fast |0 (OCoLC)fst01050080
+650	_7 |a Pacific salmon fisheries. |2 fast |0 (OCoLC)fst01050073
+650	_0 |a Fishery law and legislation |z Pacific Coast (U.S.) |v Periodicals. |0 (DLC)sh 85048694 |0 (DLC)sh 85096464 |0 (DLC)sh 99001647
+650	_7 |a Fishery law and legislation. |2 fast |0 (OCoLC)fst00926220
+655	_7 |a Periodicals. |2 fast |0 (OCoLC)fst01411641
+710	1_ |a United States. |b National Oceanic and Atmospheric Administration. |0 (DLC)n 79004184
+787	1_ |t Code of federal regulations. 50, Wildlife and fisheries |w (DLC)sn 87042104 |w (OCoLC)5955164.
+907	__ |a .b26277566 |b 03-01-10 |c 01-21-04
+944	__ |a MARCIVE Authority Processing |b 202308
+945	__ |c 2003 |g 1 |h 0 |i U184020803038 |j 0 |l md |o n |p $0.00 |q - |r - |s - |t 0 |u 0 |v 0 |w 0 |x 0 |y .i33264880 |z 01-21-04
+945	__ |c 2004 |g 1 |h 0 |i u184026024991 |j 0 |l md |o n |p $0.00 |q - |r - |s - |t 0 |u 0 |v 0 |w 0 |x 0 |y .i33892167 |z 10-06-04
+945	__ |c 2007 |g 1 |h 0 |i U184026375669 |j 0 |l md |o n |p $0.00 |q - |s - |t 0 |u 0 |v 0 |w 0 |x 0 |y .i36133371 |z 06-22-07
+998	__ |a md |b 12-28-04 |c n |d s |e - |f eng |g dcu |h 0 |i 4
 
-//Our current Output(note this is not an exact match they are two different titles but it is the general clean form and for 945's they will be used for an inventory import profile in alama.)
-008		$data 2025|||||||||||||||||||||||||||||eng|d	Edit
-245	00	$a Senate Committee on Environment and Public Works. ; Subcommittee on Water Resources. Collection.	Edit
-264	1	$a [Place of publication not identified]$b U.S. G.P.O.,$c 2025	Edit
-650	0	$a United States.	Edit
-852		$b main$h Y 4.P 96/10:95-H	Edit
-774	08	$i Contains (work):$t Nomination of Stephen J. Gage : Hearing before the Committee on Environment and Public Works, United States Senate, Ninety-fifth Congress, second session on the nomination of Stephen J. Gage to be Assistant Administrator for Research and Development, Environmental Protection Agency, January 24, 1978.$w (OCoLC)3976280	Edit
-774	08	$i Contains (work):$t Tug Fork Valley flood problems : Hearing before the Subcommittee on Water Resources of the Committee on Environment and Public Works, United States Senate, Ninety-fifth Congress, second session, February 3, 1978.$w (OCoLC)4069427	Edit
-774	08	$i Contains (work):$t Guayule rubber development : Hearing before the Subcommittee on Regional and Community Development of the Committee on Environment and Public Works, United States Senate, Ninety-fifth Congress, second session, on S. 1816 a bill to amend the Public Works and Economic Development Act of 1965 to authorize a program of research, development, and demonstration of Guayule Rubber production and manufacture as an economic development opportunity for the South-Western states, March 1, 1978.$w (OCoLC)4045734	Edit
-774	08	$i Contains (work):$t National Dam Inspection Act amendments : Hearings before the Subcommittee on Water Resources of the Committee on Environment and Public Works, United States Senate, Ninety-fifth Congress, second session, on S. 2437 a bill to amend the Act of August 8, 1972 (Public Law 92-367) to provide Federal assistance to the states for the development and implementation of effective dam safety programs, in order to protect human life and property, and S. 2444 a bill to amend the Act of August 8, 1972 (P.L. 92-367) relating to a National program of inspection of dams, February 3 and March 17, 1978.$w (OCoLC)4436934	Edit
-774	08	$i Contains (work):$t Contract dredging : Hearing before the Subcommittee on Water Resources of the Committee on Environment and Public Works, United States Senate, Ninety-fifth Congress, second session, on H.R. 7744 an act to amend the acts of August 11, 1888, and March 2, 1919, pertaining to carrying out projects for improvements of rivers and harbors by contract or otherwise, and for other purposes, January 24, 1978.$w (OCoLC)3977723	Edit
-945		$l main$i U184030294973$c Y 4.P 96/10:95-H
+Note with example above:this is for a single doc and does have a 945 field but thats for internal use so ours will be differernt. But compare this against the bad one for discrepencies. 
 
-
-
-
-Here is also an example of what a constiutent bib record will look like to be able to make the host:
-
-001		$data 000046047	Edit
-003		$data CaOONL	Edit
-005		$data 20160818113054.0	Edit
-008		$data 780615s1978 dcu f000 0 eng d	Edit
-020		$q (paperback)	Edit
-035	9	$a gp^78019208	Edit
-035		$a (OCoLC)3976280	Edit
-040		$b eng$c GPO	Edit
-043		$a n-us---	Edit
-074		$a 1045	Edit
-086	0	$a Y 4.P 96/10:95-H 45	Edit
-088		$a Serial No. 95-H 45 (United States. Congress. Senate. Committee on Environment and Public Works)	Edit
-099		$a Y 4.P 96/10:95-H 45	Edit
-110	1	$0 https://id.loc.gov/authorities/names/n82138249$a United States.$b Congress. ; Senate. ; Committee on Environment and Public Works.	Edit
-245	10	$a Nomination of Stephen J. Gage :$b Hearing before the Committee on Environment and Public Works, United States Senate, Ninety-fifth Congress, second session on the nomination of Stephen J. Gage to be Assistant Administrator for Research and Development, Environmental Protection Agency, January 24, 1978.	Edit
-264	1	$a Washington :$b U.S. G.P.O.,$c 1978.	Edit
-300		$a iii, 46 pages ;$c 24 cm.	Edit
-336		$2 rdacontent$a text$b txt	Edit
-337		$2 rdamedia$a unmediated$b n	Edit
-338		$2 rdacarrier$a volume$b nc	Edit
-490	1	$a Serial - Senate, Committee on Environment and Public Works ; no. 95-H45	Edit
-500		$a Hearing on nomination of S. J. Gage, to be an Assistant Administrator for Research and Development, Environmental Protection Agency.	Edit
-590		$a [6 cds]	Edit
-590		$a [Item 1045]	Edit
-600	10	$0 https://id.loc.gov/authorities/names/n78048786$a Gage, Stephen J.,$d 1940-	Edit
-610	10	$a United States.$b Environmental Protection Agency$x Officials and employees.	Edit
-650	0	$a Administrative agencies$x Officials and employees$z United States.	Edit
-610	10	$a United States.$b Environmental Protection Agency. ; Ofice of Research and Development$x Appointments, promotions, salaries, etc.	Edit
-810	1	$a United States.$b Congress. ; Senate. ; Committee on Environment and Public Works.$t Serial, 95th Congress ;$v no. 95-H45.	Edit
-856		$3 (paper)$u http://catalog.gpo.gov/fdlpdir/locate.jsp?ItemNumber=1045&SYS=000046047	Edit
-049		$a GPOO	Edit
-773	08	$i Bound with:$t Senate Committee on Environment and Public Works. ; Subcommittee on Water Resources. Collection.$w (LOCAL)5
-
-
-
+Our Current output (the bad one) 
+LDR	01889nam a2200409 i 4500
+001	99251241103361
+005	20250904100050.0
+008	780720s1978 dcua b f000 0 eng d
+020	__ |q (paperback)
+035	9_ |a gp^78022537
+035	__ |a (OCoLC)4069427
+035	__ |a (CaOONL)000049376
+040	__ |b eng |c GPO
+043	__ |a n-us-wv |a n-us-ky
+049	__ |a GPOO
+074	__ |a 1045
+086	0_ |a Y 4.P 96/10:95-H 46
+088	__ |a Serial No. 95-H 46 (United States. Congress. Senate. Committee on Environment and Public Works)
+099	__ |a Y 4.P 96/10:95-H 46
+110	1_ |a United States. |b Congress. |b Senate. |b Committee on Environment and Public Works. |b Subcommittee on Water Resources. |0 https://id.loc.gov/authorities/names/n78004461
+245	10 |a Tug Fork Valley flood problems : |b Hearing before the Subcommittee on Water Resources of the Committee on Environment and Public Works, United States Senate, Ninety-fifth Congress, second session, February 3, 1978.
+264	_1 |a Washington : |b U.S. G.P.O., |c 1978.
+300	__ |a iii, 166 pages : |b illustrations ; |c 24 cm.
+336	__ |a text |b txt |2 rdacontent
+337	__ |a unmediated |b n |2 rdamedia
+338	__ |a volume |b nc |2 rdacarrier
+490	1_ |a Serial - Senate, Committee on Environment and Public Works ; no. 95-H46
+504	__ |a Bibliography: page 155.
+590	__ |a [6 cds]
+590	__ |a [Item 1045]
+650	_0 |a Flood control |z Kentucky.
+650	_0 |a Flood control |z West Virginia.
+650	_0 |a Floods |z Tug Fork.
+650	_0 |a Floods |z Tug Fork, W.Va.-Ky.
+773	0_ |i Bound with: |t Senate Committee on Environment and Public Works. ; Subcommittee on Water Resources. Collection. |w 99251241503361
+810	1_ |a United States. |b Congress. |b Senate. |b Committee on Environment and Public Works. |t Serial, 95th Congress ; |v no. 95-H46.
+856	__ |3 (paper) |u http://catalog.gpo.gov/fdlpdir/locate.jsp?ItemNumber=1045&SYS=000049376

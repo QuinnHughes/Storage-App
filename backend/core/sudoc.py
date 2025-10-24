@@ -704,6 +704,130 @@ def _determine_language(records: List[Record]) -> str:
     
     return 'eng'  # Default to English
 
+def build_serial_008(year: Optional[str] = None) -> str:
+    """Build a basic 008 field for serial/continuing resources"""
+    from datetime import datetime
+    today = datetime.now().strftime('%y%m%d')
+    
+    # Basic continuing resource 008 field
+    result = today  # Date created (positions 0-5)
+    result += 'c'   # Date type: continuing resource (position 6)
+    
+    # Publication dates (positions 7-14)
+    if year:
+        start_year = year[:4].ljust(4, '|') if year else "||||"
+        result += start_year + "9999"  # Ongoing publication
+    else:
+        result += "||||9999"  # Unknown start, ongoing
+    
+    # Place of publication (positions 15-17)
+    result += "dcu"  # Washington, D.C. (default for gov docs)
+    
+    # Frequency (position 18)
+    result += "a"    # Annual (default for government serials)
+    
+    # Regularity (position 19)
+    result += "r"    # Regular
+    
+    # Type of continuing resource (position 20)
+    result += "m"    # Monographic series
+    
+    # Form of item (position 21)
+    result += " "    # None of the following (print)
+    
+    # Form of original item (position 22)
+    result += " "    # Usually blank
+    
+    # Nature of entire work (position 23)
+    result += " "    # No specified nature
+    
+    # Government publication (position 24)
+    result += "f"    # Federal government publication
+    
+    # Conference publication (position 25)
+    result += "0"    # Not a conference publication
+    
+    # Festschrift (position 26)
+    result += "0"    # Not a festschrift
+    
+    # Index (position 27)
+    result += "0"    # No index
+    
+    # Undefined (position 28)
+    result += " "
+    
+    # Fiction (position 29)
+    result += "0"    # Not fiction
+    
+    # Biography (position 30)
+    result += " "    # No biographical material
+    
+    # Language (positions 31-33)
+    result += "eng"  # English
+    
+    # Modified record (position 34)
+    result += " "
+    
+    # Cataloging source (position 35)
+    result += "d"    # Other
+    
+    return result
+
+def fix_alma_validation_issues(record: Record) -> Record:
+    """Fix common Alma validation issues in MARC records"""
+    
+    # Fix 035 field indicators - Alma rejects indicator '9'
+    for field in record.get_fields('035'):
+        if field.indicator1 == '9' or field.indicator2 == '9':
+            # Remove the problematic field
+            record.remove_field(field)
+            # Add it back with correct indicators
+            new_field = Field(tag='035', indicators=[' ', ' '], subfields=field.subfields)
+            record.add_field(new_field)
+    
+    # Fix 336/337/338 RDA fields for physical items
+    # Remove existing RDA fields to rebuild them correctly
+    for tag in ['336', '337', '338']:
+        for field in list(record.get_fields(tag)):
+            record.remove_field(field)
+    
+    # Add correct RDA fields for physical government documents
+    # 336 - Content type
+    record.add_field(Field(tag='336', indicators=[' ', ' '], subfields=[
+        Subfield('a', 'text'),
+        Subfield('b', 'txt'),
+        Subfield('2', 'rdacontent')
+    ]))
+    
+    # 337 - Media type (print for physical items, not "unmediated")
+    record.add_field(Field(tag='337', indicators=[' ', ' '], subfields=[
+        Subfield('a', 'print'),
+        Subfield('b', 'p'),
+        Subfield('2', 'rdamedia')
+    ]))
+    
+    # 338 - Carrier type
+    record.add_field(Field(tag='338', indicators=[' ', ' '], subfields=[
+        Subfield('a', 'volume'),
+        Subfield('b', 'nc'),
+        Subfield('2', 'rdacarrier')
+    ]))
+    
+    # Fix 043 field - ensure proper subfield formatting
+    for field in list(record.get_fields('043')):
+        record.remove_field(field)
+        # Rebuild with separate subfields instead of semicolon separation
+        for subfield in field.get_subfields('a'):
+            # Split on semicolon and create separate subfields
+            geographic_codes = [code.strip() for code in subfield.split(';')]
+            new_subfields = [Subfield('a', code) for code in geographic_codes if code]
+            if new_subfields:
+                new_field = Field(tag='043', indicators=[' ', ' '], subfields=new_subfields)
+                record.add_field(new_field)
+                break  # Only process the first 043 field
+    
+    return record
+
 def create_government_series_host_record(
     title: str,
     series: Optional[str],
@@ -716,15 +840,49 @@ def create_government_series_host_record(
     """Create a new MARC record for a government series host with enhanced 008 field"""
     rec = Record(force_utf8=True)
     rec.leader = "00000cas a2200000   4500"  # Changed to 'cas' for continuing resource
+    
     # 008 - enhanced format using child record analysis
     if child_records:
         rec.add_field(Field(tag='008', data=build_enhanced_008(child_records, year)))
     else:
         rec.add_field(Field(tag='008', data=build_serial_008(year)))
-    # 245
+    
+    # 040 - Cataloging source (standard for new records)
+    rec.add_field(Field(tag='040', indicators=[' ', ' '], subfields=[
+        Subfield('b', 'eng'),
+        Subfield('c', 'GPO'),
+        Subfield('d', 'GPO')
+    ]))
+    
+    # 042 - Authentication code
+    rec.add_field(Field(tag='042', indicators=[' ', ' '], subfields=[
+        Subfield('a', 'pcc')
+    ]))
+    
+    # 245 - Title
     rec.add_field(Field(tag='245', indicators=['0','0'], subfields=[
         Subfield('a', title.rstrip(' /:;') + '.')
     ]))
+    
+    # 336/337/338 - RDA content/media/carrier for physical government documents
+    rec.add_field(Field(tag='336', indicators=[' ', ' '], subfields=[
+        Subfield('a', 'text'),
+        Subfield('b', 'txt'),
+        Subfield('2', 'rdacontent')
+    ]))
+    
+    rec.add_field(Field(tag='337', indicators=[' ', ' '], subfields=[
+        Subfield('a', 'print'),
+        Subfield('b', 'p'),
+        Subfield('2', 'rdamedia')
+    ]))
+    
+    rec.add_field(Field(tag='338', indicators=[' ', ' '], subfields=[
+        Subfield('a', 'volume'),
+        Subfield('b', 'nc'),
+        Subfield('2', 'rdacarrier')
+    ]))
+    
     # Series (490 + 830)
     if series:
         rec.add_field(Field(tag='490', indicators=['0','0'], subfields=[
@@ -733,6 +891,7 @@ def create_government_series_host_record(
         rec.add_field(Field(tag='830', indicators=[' ','0'], subfields=[
             Subfield('a', series + (f". {series_number}" if series_number else ""))
         ]))
+    
     # Publisher (264)
     if publisher or year:
         subs = []
@@ -741,6 +900,7 @@ def create_government_series_host_record(
         if subs:
             subs.insert(0, Subfield('a', '[Place of publication not identified]'))
             rec.add_field(Field(tag='264', indicators=[' ','1'], subfields=subs))
+    
     # Subjects
     if subjects:
         for s in subjects:
@@ -748,6 +908,7 @@ def create_government_series_host_record(
                 rec.add_field(Field(tag='650', indicators=[' ','0'], subfields=[
                     Subfield('a', s)
                 ]))
+    
     return rec
 
 def add_holdings_and_item_fields(rec: Record, h) -> None:
@@ -798,11 +959,16 @@ def _preferred_control_number(record: Record, fallback_local: str) -> str:
     return f"(LOCAL){fallback_local}"
 
 def _strip_existing_link_fields(rec: Record):
-    """Remove prior normalized 773/774 (ind2==8) to avoid duplicates."""
+    """Remove prior boundwith 773/774 fields to avoid duplicates.
+    Updated to handle both old (ind2==8) and new (ind2==0) boundwith fields."""
     remove = []
     for f in rec.get_fields('773', '774'):
-        if f.indicator2 == '8':
-            remove.append(f)
+        # Remove fields with either indicator pattern used for boundwiths
+        if f.indicator2 in ['8', '0']:
+            # Additional check: only remove if it has boundwith-style subfields
+            subfields = f.get_subfields('i')
+            if subfields and any(phrase in subfields[0].lower() for phrase in ['bound with', 'contains']):
+                remove.append(f)
     for f in remove:
         rec.remove_field(f)
 
@@ -973,9 +1139,11 @@ def _preferred_control_number(record: Record, fallback_local: str) -> str:  # ty
     return f"(LOCAL){fallback_local}"
 
 def build_774_line(child: Record, fallback_id: str, ordinal: Optional[int] = None) -> Dict[str,str]:
+    """Build 774 field data for preview - FIXED FOR ALMA COMPLIANCE"""
     title = build_normalized_child_title(child)
     w = _preferred_control_number(child, fallback_id)
-    result = {"i": "Contains (work):", "t": title, "w": w}
+    
+    result = {"i": "Contains (work):", "t": title, "w": w, "9": "related"}
     if ordinal is not None:
         result["g"] = f"no: {ordinal}"
     return result
@@ -1030,6 +1198,39 @@ def build_boundwith_preview(record_ids: List[int]) -> Dict[str, Any]:
     }
 
 # Add this function to lookup records by OCLC number
+def create_945_field(call_number: str = None, barcode: str = None, location: str = None, 
+                    library: str = None, item_policy: str = None) -> Field:
+    """Create a 945 field for Alma import profile with physical item information.
+    
+    The 945 field is used by Alma import profiles to create physical inventory
+    alongside bibliographic records during import.
+    
+    Args:
+        call_number: Item call number (945 $a)
+        barcode: Item barcode (945 $b) 
+        location: Location code (945 $l)
+        library: Library code (945 $m)
+        item_policy: Item policy/type (945 $t)
+        
+    Returns:
+        Field: A properly formatted 945 MARC field
+    """
+    subfields = []
+    
+    # Add subfields in proper order for Alma import
+    if call_number:
+        subfields.append(Subfield(code='a', value=call_number))
+    if barcode:
+        subfields.append(Subfield(code='b', value=barcode))
+    if location:
+        subfields.append(Subfield(code='l', value=location))
+    if library:
+        subfields.append(Subfield(code='m', value=library))
+    if item_policy:
+        subfields.append(Subfield(code='t', value=item_policy))
+    
+    return Field(tag='945', indicators=[' ', ' '], subfields=subfields)
+
 def get_record_by_oclc(oclc_number: str):
     """Find a record by its OCLC number"""
     print(f"DEBUG: Looking up record by OCLC number: {oclc_number}")
@@ -1337,6 +1538,8 @@ def get_marc_by_id(record_id: int, include_edits: bool = True):
             if ov:
                 rec = next(MARCReader(BytesIO(ov.marc_data), to_unicode=True, force_utf8=True), None)
                 if rec:
+                    # Apply Alma validation fixes to edited records
+                    rec = fix_alma_validation_issues(rec)
                     return rec
         
         # Check for created record
@@ -1344,8 +1547,13 @@ def get_marc_by_id(record_id: int, include_edits: bool = True):
         if created:
             rec = next(MARCReader(BytesIO(created.marc_data), to_unicode=True, force_utf8=True), None)
             if rec:
+                # Apply Alma validation fixes to created records
+                rec = fix_alma_validation_issues(rec)
                 return rec
     
     # Check SQLite as fallback
     sqlite_record = _get_original_marc_by_id(record_id)
+    if sqlite_record:
+        # Apply Alma validation fixes to original records too
+        sqlite_record = fix_alma_validation_issues(sqlite_record)
     return sqlite_record

@@ -2539,7 +2539,7 @@ useEffect(() => {
           <td className="px-4 py-3">
             <input
               type="text"
-              value={Object.entries(editedFields[index]?.subfields || field.subfields)
+              value={Object.entries(editedFields[index]?.subfields || field.subfields || {})
                 .map(([code, val]) => `$${code} ${val}`).join(' ')}
               onChange={e => {
                 const subfields = {};
@@ -2629,7 +2629,7 @@ useEffect(() => {
           <td className="px-4 py-3 font-mono">{field.tag}</td>
           <td className="px-4 py-3 font-mono">{field.ind1}{field.ind2}</td>
           <td className="px-4 py-3 font-mono">
-            {Object.entries(field.subfields)
+            {field.subfields && Object.entries(field.subfields)
               .map(([code, val]) => (
                 <span key={`subfield-${code}`} className="mr-2">
                   <span className="text-blue-600">${code}</span> {val}

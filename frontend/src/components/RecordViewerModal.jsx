@@ -8,7 +8,7 @@ import RecordEditModal from './RecordEditModal';
  * 
  * Features:
  * - Tab-based interface: Details, Relationships, Shelf Context
- * - Role-based edit/delete buttons (hidden for viewers, not just disabled)
+ * - Role-based edit/delete buttons (hidden for viewers)
  * - Related record navigation (click to view related items/analytics)
  * - Shelf context with neighbors and physical position info
  * 

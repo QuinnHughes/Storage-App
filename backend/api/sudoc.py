@@ -19,7 +19,7 @@ from core.sudoc import (
     _extract_host_title, _extract_child_ids,
     get_record_with_boundwith_info,
     build_boundwith_preview, build_normalized_child_title,
-    _sort_child_records_for_774
+    _sort_child_records_for_774, create_945_field
 )
 from schemas.sudoc import (
     SudocSummary, 
@@ -432,28 +432,30 @@ async def create_boundwith(
             child_title = build_normalized_child_title(child_rec)
             child_w = _preferred_control_number(child_rec, str(cid))
 
-            # 774 on host with sequential numbering
+            # 774 on host with sequential numbering - FIXED FOR ALMA COMPLIANCE
             host_rec.add_field(
                 Field(
                     tag='774',
-                    indicators=['0', '8'],
+                    indicators=['0', '0'],  # Fixed: 0 for display constant, not 8
                     subfields=[
                         Subfield('i', 'Contains (work):'),
                         Subfield('t', child_title),
-                        Subfield('w', child_w),
-                        Subfield('g', f'no: {ordinal}')
+                        Subfield('w', child_w),  # Keep LOCAL prefix for manual MMS ID replacement
+                        Subfield('g', f'no: {ordinal}'),
+                        Subfield('9', 'related')  # Fixed: Related for serial/periodical series boundwiths
                     ]
                 )
             )
-            # 773 on child
+            # 773 on child - FIXED FOR ALMA COMPLIANCE
             child_rec.add_field(
                 Field(
                     tag='773',
-                    indicators=['0', '8'],
+                    indicators=['0', '0'],  # Fixed: 0 for display constant, not 8
                     subfields=[
                         Subfield('i', 'Bound with:'),
                         Subfield('t', host_title),
-                        Subfield('w', host_w)
+                        Subfield('w', host_w),  # Keep LOCAL prefix for manual MMS ID replacement
+                        Subfield('9', 'related')  # Fixed: Related for serial/periodical series boundwiths
                     ]
                 )
             )
@@ -493,6 +495,23 @@ async def create_boundwith(
     )
     if request.holdings_data:
         add_holdings_and_item_fields(host_rec, request.holdings_data)
+        
+        # Add 945 field for Alma import profile with physical item information
+        # This allows the host record to be imported with physical inventory
+        holdings = request.holdings_data
+        call_number = holdings.get('call_number', '')
+        location = holdings.get('location', 'MAIN')
+        library = holdings.get('library', 'MAIN')
+        
+        # Create a 945 field for the host record to enable physical item creation during import
+        field_945 = create_945_field(
+            call_number=call_number,
+            barcode=None,  # Will be assigned during import
+            location=location,
+            library=library,
+            item_policy='BOOK'  # Default policy for government documents
+        )
+        host_rec.add_field(field_945)
 
     host_id = crud.create_new_marc_record(db, host_rec.as_marc(), current_user.id)
     # Re-read through unified resolver (ensures consistent downstream fetch)
@@ -520,28 +539,30 @@ async def create_boundwith(
         # Normalized title for 774
         child_title = build_normalized_child_title(child_rec)
         child_w = _preferred_control_number(child_rec, str(cid))
-        # 774 on host with sequential numbering based on sorted order
+        # 774 on host with sequential numbering based on sorted order - FIXED FOR ALMA COMPLIANCE
         host_rec.add_field(
             Field(
                 tag='774',
-                indicators=['0', '8'],
+                indicators=['0', '0'],  # Fixed: 0 for display constant, not 8
                 subfields=[
                     Subfield('i', 'Contains (work):'),
                     Subfield('t', child_title),
-                    Subfield('w', child_w),
-                    Subfield('g', f'no: {ordinal}')
+                    Subfield('w', child_w),  # Keep LOCAL prefix for manual MMS ID replacement
+                    Subfield('g', f'no: {ordinal}'),
+                    Subfield('9', 'related')  # Fixed: Related for serial/periodical series boundwiths
                 ]
             )
         )
-        # 773 on child
+        # 773 on child - FIXED FOR ALMA COMPLIANCE  
         child_rec.add_field(
             Field(
                 tag='773',
-                indicators=['0', '8'],
+                indicators=['0', '0'],  # Fixed: 0 for display constant, not 8
                 subfields=[
                     Subfield('i', 'Bound with:'),
                     Subfield('t', host_title),
-                    Subfield('w', host_w)
+                    Subfield('w', host_w),  # Keep LOCAL prefix for manual MMS ID replacement
+                    Subfield('9', 'related')  # Fixed: Related for serial/periodical series boundwiths
                 ]
             )
         )
@@ -769,14 +790,37 @@ async def update_marc_field(
     if not record:
         raise HTTPException(status_code=404, detail="Record not found")
     
-    # Make sure the field index is valid
-    fields = list(record.get_fields())
-    if field_index < 0 or field_index >= len(fields):
-        raise HTTPException(status_code=404, detail=f"Field index {field_index} out of range (0-{len(fields)-1})")
+    # Get fields in the same sorted order as displayed to the user
+    # This ensures the field_index matches what the user sees
+    displayed_fields = get_record_fields(record_id, preserve_order=False)
     
-    # Get the field to be updated
-    old_field = fields[field_index]
-    print(f"Updating field at index {field_index}: {old_field.tag} -> {field_update.get('tag', old_field.tag)}")
+    if field_index < 0 or field_index >= len(displayed_fields):
+        raise HTTPException(status_code=404, detail=f"Field index {field_index} out of range (0-{len(displayed_fields)-1})")
+    
+    # Get the field information from the displayed fields list
+    field_info = displayed_fields[field_index]
+    tag_to_update = field_info['tag']
+    
+    # Find the actual field object in the record by matching tag and position
+    # Since we need to account for multiple fields with the same tag, we need to 
+    # count fields with the same tag up to this index
+    fields_with_same_tag_before = 0
+    for i in range(field_index):
+        if displayed_fields[i]['tag'] == tag_to_update:
+            fields_with_same_tag_before += 1
+    
+    # Find the actual field to update
+    fields_of_this_tag = record.get_fields(tag_to_update)
+    if fields_with_same_tag_before >= len(fields_of_this_tag):
+        raise HTTPException(status_code=404, detail=f"Cannot find field {tag_to_update} at position {fields_with_same_tag_before}")
+    
+    old_field = fields_of_this_tag[fields_with_same_tag_before]
+    print(f"Updating field at index {field_index}: {old_field.tag} -> {field_update.get('tag', old_field.tag)} (position {fields_with_same_tag_before} among {tag_to_update} fields)")
+    print(f"Field update data: {field_update}")
+    
+    # Count fields before update
+    fields_before = len(list(record.get_fields()))
+    print(f"Record has {fields_before} fields before update")
     
     try:
         # Create a new field based on the update
@@ -808,25 +852,28 @@ async def update_marc_field(
             )
         
         # Replace the field in the record more safely
-        # Remove the old field and add the new one at the same position
-        field_position = None
-        
-        # Find the position of the field to replace
-        for i, field_obj in enumerate(record.fields):
-            if field_obj == old_field:
-                field_position = i
-                break
-        
-        if field_position is not None:
-            # Remove the old field
-            record.remove_field(old_field)
-            
-            # Insert the new field at the same position
-            record.fields.insert(field_position, new_field)
-        else:
-            # Fallback: if we can't find the exact field, just remove old and add new
+        # Use direct field replacement instead of remove/insert to avoid position issues
+        try:
+            # Find and replace the field directly
+            for i, field_obj in enumerate(record.fields):
+                if field_obj == old_field:
+                    record.fields[i] = new_field
+                    print(f"Replaced field at position {i}: {old_field.tag} -> {new_field.tag}")
+                    break
+            else:
+                # If we couldn't find the field by reference, fallback to remove/add
+                print(f"Could not find field by reference, using remove/add fallback")
+                record.remove_field(old_field)
+                record.add_field(new_field)
+        except Exception as field_replace_error:
+            print(f"Error in field replacement: {field_replace_error}")
+            # Last resort fallback
             record.remove_field(old_field)
             record.add_field(new_field)
+        
+        # Count fields after update
+        fields_after = len(list(record.get_fields()))
+        print(f"Record has {fields_after} fields after update")
         
         # Save the updated record
         crud.save_edited_record(db, record_id, record.as_marc(), current_user.id)
@@ -838,6 +885,192 @@ async def update_marc_field(
     except Exception as e:
         print(f"Error updating field: {e}")
         raise HTTPException(status_code=500, detail=f"Error updating field: {str(e)}")
+
+@router.post("/{record_id}/field/add")
+async def add_marc_field(
+    record_id: int,
+    request_body = Body(...),
+    current_user = Depends(require_cataloger),
+    db: Session = Depends(get_db)
+):
+    """Add a new MARC field to a record"""
+    # Get the record
+    record = get_marc_by_id(record_id, include_edits=True)
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+    
+    try:
+        print(f"Raw request_body: {request_body} (type: {type(request_body)})")
+        
+        # Handle different data types that might be sent
+        if isinstance(request_body, str):
+            import json
+            try:
+                field_data = json.loads(request_body)
+                print(f"Parsed JSON from string: {field_data}")
+            except json.JSONDecodeError as e:
+                print(f"JSON decode error: {e}")
+                raise HTTPException(status_code=400, detail=f"Invalid JSON format: {str(e)}")
+        elif isinstance(request_body, dict):
+            field_data = request_body
+            print(f"Using dict directly: {field_data}")
+        else:
+            print(f"Unexpected data type: {type(request_body)}")
+            raise HTTPException(status_code=400, detail=f"Unexpected data type: {type(request_body)}")
+        
+        # Extract field information from request
+        tag = field_data.get('tag')
+        indicators = field_data.get('indicators', [' ', ' '])
+        subfields_data = field_data.get('subfields', {})
+        
+        # Handle alternative indicator format (ind1, ind2 instead of indicators array)
+        if 'ind1' in field_data and 'ind2' in field_data:
+            indicators = [field_data.get('ind1', ' '), field_data.get('ind2', ' ')]
+        
+        if not tag:
+            raise HTTPException(status_code=400, detail="Field tag is required")
+        
+        # Validate tag format
+        if not tag.isdigit() or len(tag) != 3:
+            raise HTTPException(status_code=400, detail="Field tag must be 3 digits")
+        
+        print(f"Adding field {tag} to record {record_id}")
+        
+        # For 945 fields, check for duplicates based on barcode if present
+        if tag == '945' and isinstance(subfields_data, dict):
+            barcode = subfields_data.get('i')  # Barcode might be in subfield 'i' for some systems
+            if not barcode:
+                barcode = subfields_data.get('b')  # Standard barcode subfield
+            
+            if barcode:
+                existing_945_fields = record.get_fields('945')
+                for existing_field in existing_945_fields:
+                    existing_barcode = existing_field.get('i') or existing_field.get('b')
+                    if existing_barcode == barcode:
+                        print(f"945 field with barcode {barcode} already exists, skipping addition")
+                        raise HTTPException(status_code=400, detail=f"945 field with barcode {barcode} already exists")
+        
+        # Create the field
+        if tag.startswith('00'):
+            # Control field (001-009)
+            field_data_content = field_data.get('data', '')
+            new_field = Field(tag=tag, data=field_data_content)
+        else:
+            # Data field (010-999)
+            # Ensure indicators are properly formatted
+            ind1 = indicators[0] if len(indicators) > 0 else ' '
+            ind2 = indicators[1] if len(indicators) > 1 else ' '
+            
+            # Convert subfields to Subfield objects
+            subfield_list = []
+            
+            # Handle different subfield formats
+            if isinstance(subfields_data, dict):
+                # Format: {'l': 'ssd', 'i': 'U184037130967', 'c': '', 'n': ''}
+                for code, value in subfields_data.items():
+                    if code and value:  # Skip empty values
+                        subfield_list.append(Subfield(code=code, value=value))
+            elif isinstance(subfields_data, list):
+                # Format: [{'code': 'a', 'value': 'something'}, ...]
+                for sf in subfields_data:
+                    if isinstance(sf, dict):
+                        code = sf.get('code', '')
+                        value = sf.get('value', '')
+                        if code and value:
+                            subfield_list.append(Subfield(code=code, value=value))
+            
+            new_field = Field(tag=tag, indicators=[ind1, ind2], subfields=subfield_list)
+        
+        # Add the field to the record
+        record.add_field(new_field)
+        
+        # Save the updated record
+        crud.save_edited_record(db, record_id, record.as_marc(), current_user.id)
+        
+        # Return updated fields (sorted for proper MARC order)
+        updated_fields = get_record_fields(record_id, preserve_order=False)
+        print(f"Successfully added field {tag}. Returning {len(updated_fields)} total fields")
+        return updated_fields
+        
+    except Exception as e:
+        print(f"Error adding field: {e}")
+        print(f"Field data received: {field_data}")
+        raise HTTPException(status_code=500, detail=f"Error adding field: {str(e)}")
+
+@router.post("/{record_id}/field/945/add")
+async def add_945_field(
+    record_id: int,
+    request_body = Body(...),
+    current_user = Depends(require_cataloger),
+    db: Session = Depends(get_db)
+):
+    """Add a 945 field for Alma import profile with physical item information"""
+    # Get the record
+    record = get_marc_by_id(record_id, include_edits=True)
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+    
+    try:
+        print(f"Raw request_body: {request_body} (type: {type(request_body)})")
+        
+        # Handle different data types that might be sent
+        if isinstance(request_body, str):
+            import json
+            try:
+                item_data = json.loads(request_body)
+                print(f"Parsed JSON from string: {item_data}")
+            except json.JSONDecodeError as e:
+                print(f"JSON decode error: {e}")
+                raise HTTPException(status_code=400, detail=f"Invalid JSON format: {str(e)}")
+        elif isinstance(request_body, dict):
+            item_data = request_body
+            print(f"Using dict directly: {item_data}")
+        else:
+            print(f"Unexpected data type: {type(request_body)}")
+            raise HTTPException(status_code=400, detail=f"Unexpected data type: {type(request_body)}")
+        
+        # Extract item information from request
+        call_number = item_data.get('call_number', '')
+        barcode = item_data.get('barcode', '')
+        location = item_data.get('location', 'MAIN')
+        library = item_data.get('library', 'MAIN')
+        item_policy = item_data.get('item_policy', 'BOOK')
+        
+        print(f"Adding 945 field to record {record_id}: call_number={call_number}, location={location}")
+        
+        # Check if a 945 field with the same barcode already exists to prevent duplicates
+        existing_945_fields = record.get_fields('945')
+        if barcode and existing_945_fields:
+            for existing_field in existing_945_fields:
+                existing_barcode = existing_field.get('b')  # Barcode is in subfield 'b'
+                if existing_barcode == barcode:
+                    print(f"945 field with barcode {barcode} already exists, skipping addition")
+                    raise HTTPException(status_code=400, detail=f"945 field with barcode {barcode} already exists")
+        
+        # Create the 945 field using the helper function
+        field_945 = create_945_field(
+            call_number=call_number,
+            barcode=barcode if barcode else None,
+            location=location,
+            library=library,
+            item_policy=item_policy
+        )
+        
+        # Add the field to the record
+        record.add_field(field_945)
+        
+        # Save the updated record
+        crud.save_edited_record(db, record_id, record.as_marc(), current_user.id)
+        
+        # Return updated fields (sorted for proper MARC order)
+        updated_fields = get_record_fields(record_id, preserve_order=False)
+        print(f"Successfully added 945 field. Returning {len(updated_fields)} total fields")
+        return updated_fields
+        
+    except Exception as e:
+        print(f"Error adding 945 field: {e}")
+        print(f"Item data received: {item_data}")
+        raise HTTPException(status_code=500, detail=f"Error adding 945 field: {str(e)}")
 
 @router.delete("/{record_id}/field/{field_index}")
 async def delete_marc_field(
@@ -852,14 +1085,32 @@ async def delete_marc_field(
     if not record:
         raise HTTPException(status_code=404, detail="Record not found")
     
-    # Make sure the field index is valid
-    fields = list(record.get_fields())
-    if field_index < 0 or field_index >= len(fields):
-        raise HTTPException(status_code=404, detail=f"Field index {field_index} out of range (0-{len(fields)-1})")
+    # Get fields in the same sorted order as displayed to the user
+    # This ensures the field_index matches what the user sees
+    displayed_fields = get_record_fields(record_id, preserve_order=False)
     
-    # Get the field to be deleted
-    field_to_delete = fields[field_index]
-    print(f"Deleting field at index {field_index}: {field_to_delete.tag}")
+    if field_index < 0 or field_index >= len(displayed_fields):
+        raise HTTPException(status_code=404, detail=f"Field index {field_index} out of range (0-{len(displayed_fields)-1})")
+    
+    # Get the field information from the displayed fields list
+    field_info = displayed_fields[field_index]
+    tag_to_delete = field_info['tag']
+    
+    # Find the actual field object in the record by matching tag and position
+    # Since we need to account for multiple fields with the same tag, we need to 
+    # count fields with the same tag up to this index
+    fields_with_same_tag_before = 0
+    for i in range(field_index):
+        if displayed_fields[i]['tag'] == tag_to_delete:
+            fields_with_same_tag_before += 1
+    
+    # Find the actual field to delete
+    fields_of_this_tag = record.get_fields(tag_to_delete)
+    if fields_with_same_tag_before >= len(fields_of_this_tag):
+        raise HTTPException(status_code=404, detail=f"Cannot find field {tag_to_delete} at position {fields_with_same_tag_before}")
+    
+    field_to_delete = fields_of_this_tag[fields_with_same_tag_before]
+    print(f"Deleting field at index {field_index}: {field_to_delete.tag} (position {fields_with_same_tag_before} among {tag_to_delete} fields)")
     
     try:
         # Remove the field from the record
