@@ -89,7 +89,7 @@ def clear_all_analytics_errors(db: Session = Depends(get_db)):
     """
     Delete all records from the analytics_errors table.
     Use this to start fresh before re-uploading analytics data.
-    Returns the count of deleted records.
+    Returns the count of deleted records (use only in case of emergency).
     """
     deleted_count = db.query(models.AnalyticsError).delete(synchronize_session=False)
     db.commit()

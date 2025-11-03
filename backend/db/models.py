@@ -89,7 +89,7 @@ class UserLog(Base):
     method      = Column(String, nullable=False)
     status_code = Column(Integer, nullable=False)
     detail      = Column(String, nullable=True)
-    timestamp   = Column(DateTime, default=datetime.utcnow)  # Fix this line too
+    timestamp   = Column(DateTime, default=datetime.utcnow)  
 
     user = relationship("User", back_populates="logs")
 
@@ -144,7 +144,7 @@ class SudocRecord(Base):
     title = Column(String)
     marc_data = Column(LargeBinary)
     created_by = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, default=datetime.now)  # This will work now
+    created_at = Column(DateTime, default=datetime.now)
 
 class SudocCreatedRecord(Base):
     """

@@ -79,12 +79,12 @@ export default function ShelfViewer() {
               type="text"
               value={shelfCallNumber}
               onChange={(e) => setShelfCallNumber(e.target.value)}
-              placeholder="e.g., S-3-01B-02-03"
+              placeholder="e.g., S-1-01B-02-03"
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 font-mono"
               required
             />
             <p className="text-xs text-gray-500 mt-1">
-              Format: S-floor-range-ladder-shelf (e.g., S-3-01B-02-03)
+              Format: S-floor-range-ladder-shelf (e.g., S-1-01B-02-03)
             </p>
           </div>
           
@@ -117,7 +117,7 @@ export default function ShelfViewer() {
             Try viewing one of these shelves:
           </p>
           <div className="flex flex-wrap gap-2">
-            {['S-3-01B-02-03', 'S-3-01B-02-04', 'S-3-01B-02-05'].map(example => (
+            {['S-1-01B-02-03', 'S-1-01B-02-04', 'S-1-01B-02-05'].map(example => (
               <button
                 key={example}
                 onClick={() => {

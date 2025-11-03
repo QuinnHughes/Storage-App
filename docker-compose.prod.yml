@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  db:
+    image: quinnhughes/storage-app-db:latest
+    container_name: shelfdata_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: quinnjh
+      POSTGRES_PASSWORD: quinn
+      POSTGRES_DB: shelfdata
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+
+  backend:
+    image: quinnhughes/storage-app-backend:latest
+    container_name: shelfdata_backend
+    restart: unless-stopped
+    environment:
+      - ENV=prod
+      - DATABASE_URL=postgresql://quinnjh:quinn@db:5432/shelfdata
+      - FRONTEND_URL=http://localhost:3000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    networks:
+      - app-network
+
+  frontend:
+    image: quinnhughes/storage-app-frontend:latest
+    container_name: shelfdata_frontend
+    restart: unless-stopped
+    environment:
+      - ENV=prod
+      - FRONTEND_URL=http://localhost:3000
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+volumes:
+  db_data:
+
+networks:
+  app-network:
+    driver: bridge
