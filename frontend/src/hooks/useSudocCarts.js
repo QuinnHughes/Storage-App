@@ -14,11 +14,13 @@ export function useSudocCarts() {
 
   const loadCarts = async () => {
     try {
+      console.log('Loading carts...');
       const res = await apiFetch('/catalog/sudoc/cart');
       if (!res.ok) {
         throw new Error('Failed to load carts');
       }
       const data = await res.json();
+      console.log('Loaded carts:', data);
       setCarts(data);
       // Select first cart if none selected
       if (!selectedCart && data.length > 0) {
@@ -61,35 +63,53 @@ export function useSudocCarts() {
   };
 
   const addToCart = async (recordId) => {
-    if (!selectedCart) return;
+    if (!selectedCart) {
+      throw new Error('No cart selected');
+    }
     try {
+      setError(null);
       const res = await apiFetch(`/catalog/sudoc/cart/${selectedCart}/records/${recordId}`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${localStorage.getItem("token")}`
         }
       });
-      if (!res.ok) throw new Error('Failed to add to cart');
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Failed to add to cart (${res.status})`);
+      }
+      
       await loadCarts(); // Refresh carts to show new item
     } catch (err) {
       console.error('Error adding to cart:', err);
+      setError(err.message);
       throw err;
     }
   };
 
   const removeFromCart = async (recordId) => {
-    if (!selectedCart) return;
+    if (!selectedCart) {
+      throw new Error('No cart selected');
+    }
     try {
+      setError(null);
       const res = await apiFetch(`/catalog/sudoc/cart/${selectedCart}/records/${recordId}`, {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${localStorage.getItem("token")}`
         }
       });
-      if (!res.ok) throw new Error('Failed to remove from cart');
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Failed to remove from cart (${res.status})`);
+      }
+      
       await loadCarts(); // Refresh carts to show updated items
     } catch (err) {
       console.error('Error removing from cart:', err);
+      setError(err.message);
       throw err;
     }
   };
@@ -100,7 +120,10 @@ export function useSudocCarts() {
       setError(null);
       
       const res = await apiFetch(`/catalog/sudoc/cart/${cartId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`
+        }
       });
       
       if (!res.ok) {
@@ -131,6 +154,7 @@ export function useSudocCarts() {
     addToCart,
     removeFromCart,
     deleteCart,
+    loadCarts,
     loading,
     error
   };

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import apiFetch from '../api/client';
+import RecordViewerModal from '../components/RecordViewerModal';
 
 export default function ItemSearch() {
   const [query, setQuery] = useState("");
@@ -15,8 +16,36 @@ export default function ItemSearch() {
   const [ladders, setLadders] = useState([]);
   const [shelves, setShelves] = useState([]);
 
+  // Record viewer modal state
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [selectedRecordId, setSelectedRecordId] = useState(null);
+  const [userRole, setUserRole] = useState('viewer');
+
   // ✅ Fetch dropdown filter values on mount
   useEffect(() => {
+    // Get user role from API
+    async function fetchUserRole() {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setUserRole('viewer');
+          return;
+        }
+        const resp = await apiFetch('/auth/me', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (resp.ok) {
+          const userData = await resp.json();
+          setUserRole(userData.role || 'viewer');
+        }
+      } catch (err) {
+        console.error('Failed to fetch user role:', err);
+        setUserRole('viewer');
+      }
+    }
+
+    fetchUserRole();
+
     async function fetchFilters() {
       try {
         const token = localStorage.getItem('token');
@@ -89,6 +118,21 @@ export default function ItemSearch() {
   const handleFilterChange = (setter) => (e) => {
     setter(e.target.value);
     handleSearch();
+  };
+
+  const handleViewRecord = (recordId) => {
+    setSelectedRecordId(recordId);
+    setViewerOpen(true);
+  };
+
+  const handleDelete = (deletedId) => {
+    // Remove deleted record from results
+    setResults(results.filter(r => r.id !== deletedId));
+  };
+
+  const handleEdit = (updatedRecord) => {
+    // Update the record in results
+    setResults(results.map(r => r.id === updatedRecord.id ? { ...r, ...updatedRecord } : r));
   };
 
   return (
@@ -221,11 +265,32 @@ export default function ItemSearch() {
                 <p className="text-sm">
                   Status: {item.analytics?.status || "-"}
                 </p>
+                <button
+                  onClick={() => handleViewRecord(item.id)}
+                  className="mt-3 w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                  View Record
+                </button>
               </div>
             ))}
           </div>
         </>
       )}
+
+      {/* Record Viewer Modal */}
+      <RecordViewerModal
+        isOpen={viewerOpen}
+        onClose={() => setViewerOpen(false)}
+        recordType="item"
+        recordId={selectedRecordId}
+        userRole={userRole}
+        onDelete={handleDelete}
+        onEdit={handleEdit}
+      />
     </div>
   );
 }

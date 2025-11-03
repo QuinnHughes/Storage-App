@@ -21,7 +21,9 @@ const Layout = () => (
       <h3><b>Accessioning</b></h3>
       <ul>  
         <li><Link to="/empty-slots">Empty Slots</Link></li>
-          <li><Link to="/accession-slots">Accesion From Slots</Link></li>
+        <li><Link to="/accession-slots">Accession From Slots</Link></li>
+        <li><Link to="/shelf-optimization">Shelf Optimization</Link></li>
+        <li><Link to="/shelf-viewer">Shelf Viewer</Link></li>
       </ul>
       <h3><b>Record Editing</b></h3>
       <ul>

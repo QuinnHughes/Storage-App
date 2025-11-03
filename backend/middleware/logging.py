@@ -34,7 +34,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             path=request.url.path,
             method=request.method,
             status_code=response.status_code,
-            detail=None  # you could add more detail if you want
+            detail=None  
         )
         db.add(log)
         db.commit()

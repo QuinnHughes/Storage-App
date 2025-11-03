@@ -5,6 +5,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
+      // ONLY proxy /api/* routes to backend
+      // All other routes should be handled by React Router
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,

@@ -9,6 +9,8 @@ export default function CombinedUpload() {
   const [weedFile, setWeedFile] = useState(null);
 
   const [feedback, setFeedback] = useState({ analytics: null, items: null, weed: null });
+  const [analyticsProgress, setAnalyticsProgress] = useState(null);
+  const [isUploading, setIsUploading] = useState({ analytics: false, items: false, weed: false });
 
   // Static descriptions - update these in the code to change the text
   const descriptions = {
@@ -20,16 +22,96 @@ export default function CombinedUpload() {
   const handleFileChange = (setter) => (e) => {
     setter(e.target.files[0]);
     setFeedback({ analytics: null, items: null, weed: null });
+    setAnalyticsProgress(null);
+  };
+
+  const handleAnalyticsUploadStream = async () => {
+    if (!analyticsFile) {
+      setFeedback((prev) => ({ ...prev, analytics: { error: "Please select a file first." } }));
+      return;
+    }
+
+    setIsUploading((prev) => ({ ...prev, analytics: true }));
+    setAnalyticsProgress({ progress: 0, processed: 0, total: 0 });
+    setFeedback((prev) => ({ ...prev, analytics: null }));
+
+    const form = new FormData();
+    form.append("file", analyticsFile);
+
+    try {
+      const token = localStorage.getItem("token");
+      const resp = await fetch("/api/upload/analytics-file", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      });
+
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const data = JSON.parse(line);
+              
+              if (data.error) {
+                setFeedback((prev) => ({ ...prev, analytics: { error: data.error } }));
+                setIsUploading((prev) => ({ ...prev, analytics: false }));
+                setAnalyticsProgress(null);
+                return;
+              }
+
+              if (data.status === "processing") {
+                setAnalyticsProgress({
+                  progress: data.progress || 0,
+                  processed: data.processed || 0,
+                  total: data.total || 0,
+                  inserted: data.inserted || 0,
+                  errors_inserted: data.errors_inserted || 0,
+                  skipped_out_of_range: data.skipped_out_of_range || 0
+                });
+              } else if (data.status === "complete") {
+                setFeedback((prev) => ({ ...prev, analytics: data }));
+                setAnalyticsProgress(null);
+                setIsUploading((prev) => ({ ...prev, analytics: false }));
+              }
+            } catch (e) {
+              console.error("Failed to parse progress line:", line, e);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      setFeedback((prev) => ({ ...prev, analytics: { error: "Network error: " + e.message } }));
+      setIsUploading((prev) => ({ ...prev, analytics: false }));
+      setAnalyticsProgress(null);
+    }
   };
 
   const handleUpload = async (type) => {
+    // Special handling for analytics with streaming progress
+    if (type === "analytics") {
+      return handleAnalyticsUploadStream();
+    }
+
     let file;
     let endpoint;
 
-    if (type === "analytics") {
-      file = analyticsFile;
-      endpoint = "/api/upload/analytics-file";
-    } else if (type === "items") {
+    if (type === "items") {
       file = itemsFile;
       endpoint = "/api/upload/items-file";
     } else if (type === "weed") {
@@ -41,6 +123,8 @@ export default function CombinedUpload() {
       setFeedback((prev) => ({ ...prev, [type]: { error: "Please select a file first." } }));
       return;
     }
+
+    setIsUploading((prev) => ({ ...prev, [type]: true }));
 
     const form = new FormData();
     form.append("file", file);
@@ -65,6 +149,8 @@ export default function CombinedUpload() {
       }
     } catch (e) {
       setFeedback((prev) => ({ ...prev, [type]: { error: "Network error: " + e.message } }));
+    } finally {
+      setIsUploading((prev) => ({ ...prev, [type]: false }));
     }
   };
 
@@ -82,6 +168,7 @@ export default function CombinedUpload() {
             accept=".xlsx,.xls"
             onChange={handleFileChange(setAnalyticsFile)}
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            disabled={isUploading.analytics}
           />
           {analyticsFile ? (
             <span className="text-gray-800 font-medium">Selected file: {analyticsFile.name}</span>
@@ -89,11 +176,39 @@ export default function CombinedUpload() {
             <span className="text-gray-500">Click or drag to select analytics file</span>
           )}
         </div>
+        
+        {analyticsProgress && (
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm text-gray-600">
+              <span>Processing: {analyticsProgress.processed} / {analyticsProgress.total} rows</span>
+              <span>{analyticsProgress.progress}%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+              <div 
+                className="bg-green-600 h-4 rounded-full transition-all duration-300 ease-out flex items-center justify-center text-xs text-white font-medium"
+                style={{ width: `${analyticsProgress.progress}%` }}
+              >
+                {analyticsProgress.progress > 10 && `${analyticsProgress.progress}%`}
+              </div>
+            </div>
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>Inserted: {analyticsProgress.inserted || 0}</span>
+              <span>Errors: {analyticsProgress.errors_inserted || 0}</span>
+              <span>Out of Range: {analyticsProgress.skipped_out_of_range || 0}</span>
+            </div>
+          </div>
+        )}
+
         <button
           onClick={() => handleUpload("analytics")}
-          className="w-full mt-2 py-2 bg-green-600 text-white font-medium rounded hover:bg-green-700"
+          disabled={isUploading.analytics}
+          className={`w-full mt-2 py-2 font-medium rounded ${
+            isUploading.analytics 
+              ? 'bg-gray-400 cursor-not-allowed' 
+              : 'bg-green-600 text-white hover:bg-green-700'
+          }`}
         >
-          Upload Analytics
+          {isUploading.analytics ? 'Uploading...' : 'Upload Analytics'}
         </button>
         {feedback.analytics && (
           <pre className="mt-3 bg-gray-100 p-3 rounded text-sm overflow-x-auto">

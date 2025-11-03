@@ -1,2 +1,2 @@
 Coming soon
-© Quinn Hughes — 2025
+Quinn Hughes — 2025

@@ -23,6 +23,9 @@ from api.accession import router as accession_router
 from api.weed import router as weed_router
 from api.users import router as users_router
 from api.record_management import router as record_management_router
+from api.records import router as records_router
+from api.dashboard import router as dashboard_router
+from api.shelf_optimization import router as shelf_optimization_router
 from core.auth import (
     require_viewer,
     require_book_worm,
@@ -73,7 +76,7 @@ async def health():
 app.add_middleware(LoggingMiddleware)
 
 # ── AUTHENTICATION ───────────────────────────────────────────────────────────
-# Registers POST /auth/token (and GET /auth/me if implemented)
+# Registers POST /auth/token (and GET /auth/me)
 app.include_router(
     auth_router,
     prefix="/api/auth",        
@@ -100,6 +103,18 @@ app.include_router(
     dependencies=[Depends(require_viewer)],
 )
 app.include_router(
+    dashboard_router,
+    prefix="/api/dashboard",
+    tags=["Dashboard"],
+    dependencies=[Depends(require_viewer)],
+)
+app.include_router(
+    shelf_optimization_router,
+    prefix="/api/shelf-optimization",
+    tags=["Shelf Optimization"],
+    dependencies=[Depends(require_book_worm)],
+)
+app.include_router(
     catalog_router,
     prefix="/api/catalog",
     tags=["Catalog"],
@@ -124,12 +139,18 @@ app.include_router(
     dependencies=[Depends(require_cataloger)],
 )
 app.include_router(
+    records_router,
+    prefix="/api/records",
+    tags=["Records"],
+    dependencies=[Depends(require_viewer)],
+)
+app.include_router(
     record_management_router,
     prefix="/api/record-management",
     tags=["record-management"],
     dependencies=[Depends(require_cataloger)]
 )
-    
+
 # ── ADMIN-ONLY ROUTES ─────────────────────────────────────────────────────────
 app.include_router(
     logs_router,
