@@ -499,9 +499,9 @@ async def create_boundwith(
         # Add 945 field for Alma import profile with physical item information
         # This allows the host record to be imported with physical inventory
         holdings = request.holdings_data
-        call_number = holdings.get('call_number', '')
-        location = holdings.get('location', 'MAIN')
-        library = holdings.get('library', 'MAIN')
+        call_number = holdings.call_number or ''
+        location = holdings.location_code or 'MAIN'
+        library = 'MAIN'  # Default library since it's not in HoldingsItemData
         
         # Create a 945 field for the host record to enable physical item creation during import
         field_945 = create_945_field(
@@ -557,7 +557,7 @@ async def create_boundwith(
         child_rec.add_field(
             Field(
                 tag='773',
-                indicators=['0', '0'],  # Fixed: 0 for display constant, not 8
+                indicators=['0', ''],  # Fixed: 0 for display constant, not 8
                 subfields=[
                     Subfield('i', 'Bound with:'),
                     Subfield('t', host_title),

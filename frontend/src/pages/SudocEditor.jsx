@@ -1706,7 +1706,7 @@ function SudocEditor() {
 
       // Reset form and close modal
       setNewField945({
-        l: 'ssy',
+        l: 'ssd',
         i: '',
         c: '',
         n: ''
@@ -2091,7 +2091,6 @@ function SudocEditor() {
     }
   };
 
-  // Add or modify this function in your SudocEditor component
   const toggleHostExpansion = async (hostRecord) => {
     // Toggle expanded state
     const isCurrentlyExpanded = expandedHosts.has(hostRecord.id);
@@ -2177,7 +2176,6 @@ function SudocEditor() {
     }
   };
 
-  // Add this CSS at the top of your component
 const responsiveStyles = `
   .marc-field-container {
     position: relative;
@@ -2733,7 +2731,7 @@ useEffect(() => {
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Enumeration/Chronology ($n)
+                  Description ($n)
                 </label>
                 <input
                   type="text"

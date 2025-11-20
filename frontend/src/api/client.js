@@ -14,7 +14,7 @@ export default async function apiFetch(path, opts = {}) {
 
   // perform the fetch to /api/<path>
   const res = await fetch(`${API_BASE}${path}`, {
-    credentials: 'include',  // if you ever use cookies/sessions
+    credentials: 'include',
     ...opts,
     headers,
   });

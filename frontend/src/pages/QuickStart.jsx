@@ -139,7 +139,7 @@ const QuickStart = () => {
       <div className="text-center">
         <h1 className="text-4xl font-bold text-gray-900 mb-4">Storage App Dashboard</h1>
         <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-          Comprehensive management system for physical storage and MARC cataloging of government document collections
+          Management system for physical storage and MARC cataloging of government document collections
         </p>
         <div className="mt-4 inline-flex items-center px-4 py-2 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
           Logged in as: <span className="ml-1 capitalize font-semibold">{userRole}</span>
@@ -246,7 +246,7 @@ const QuickStart = () => {
             
             <QuickActionCard
               title="Upload Files"
-              description="Bulk upload Excel files for items and analytics"
+              description="Bulk upload Excel files for items, analytics, and weeding"
               link="/combined-upload"
               requiredRole="book_worm"
               icon={<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>}
